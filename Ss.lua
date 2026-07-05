@@ -1,4 +1,4 @@
-warn("[GameAnalyzer v1.0] === СКРИПТ ЗАПУЩЕН ===")
+warn("[GameAnalyzer v2.0] === СКРИПТ ЗАПУЩЕН ===")
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
 end
@@ -17,20 +17,28 @@ local _hookmm = rawget(getfenv(), "hookmetamethod")
 local _getgc = rawget(getfenv(), "getgc")
 local _getreg = rawget(getfenv(), "getreg")
 local _getupvalues = rawget(getfenv(), "getupvalues")
+local _getupvalue = rawget(getfenv(), "getupvalue")
+local _getconstants = rawget(getfenv(), "getconstants")
+local _getprotos = rawget(getfenv(), "getprotos")
 local _getconn = rawget(getfenv(), "getconnections")
 local _setreadonly = rawget(getfenv(), "setreadonly")
 local _getrawmt = rawget(getfenv(), "getrawmetatable")
 local _newcclosure = rawget(getfenv(), "newcclosure")
 local _gethui = rawget(getfenv(), "gethui")
 local _identify = rawget(getfenv(), "identifyexecutor")
-local _setclipboard = rawget(getfenv(), "setclipboard")
+local _setclipboard = rawget(getfenv(), "setclipboard") or rawget(getfenv(), "toclipboard")
 local _fireproximityprompt = rawget(getfenv(), "fireproximityprompt")
 local _fireclickdetector = rawget(getfenv(), "fireclickdetector")
+local _decompile = rawget(getfenv(), "decompile")
+local _getnamecallmethod = rawget(getfenv(), "getnamecallmethod")
 hookfunction = _hookfn
 hookmetamethod = _hookmm
 getgc = _getgc
 getreg = _getreg
 getupvalues = _getupvalues
+getupvalue = _getupvalue
+getconstants = _getconstants
+getprotos = _getprotos
 getconnections = _getconn
 setreadonly = _setreadonly
 getrawmetatable = _getrawmt
@@ -38,11 +46,17 @@ newcclosure = _newcclosure
 gethui = _gethui
 fireproximityprompt = _fireproximityprompt
 fireclickdetector = _fireclickdetector
+setclipboard = _setclipboard
+decompile = _decompile
+getnamecallmethod = _getnamecallmethod
 local Settings = {
     SilentMode = false,
     AutoScan = true,
     ScanInterval = 60,
-    DetectAntiCheat = true,
+    RemoteSpy = false,
+    DeepAccess = true,
+    ClipboardEnabled = _setclipboard ~= nil,
+    SpyMaxCalls = 200,
 }
 local DeepData = {
     CombatRemotes = {}, DamageRemotes = {}, WeaponRemotes = {}, BossRemotes = {},
@@ -50,14 +64,23 @@ local DeepData = {
     HealRemotes = {}, TeleportRemotes = {}, ChatRemotes = {}, SpawnRemotes = {},
     KillRemotes = {}, GodRemotes = {}, DeleteRemotes = {}, ExecuteRemotes = {},
     NoclipRemotes = {}, SpeedRemotes = {},
-    Bindables = {}, Tools = {}, BossModels = {}, NPCs = {},
+    ShopRemotes = {}, InventoryRemotes = {}, QuestRemotes = {}, TradeRemotes = {},
+    PetRemotes = {}, VehicleRemotes = {}, BuildRemotes = {}, ClaimRemotes = {},
+    UpgradeRemotes = {}, RollRemotes = {}, LotteryRemotes = {},
+    DataStoreRemotes = {}, InternalRemotes = {}, SessionRemotes = {},
+    Bindables = {}, Tools = {}, BossModels = {}, NPCs = {}, HiddenModels = {},
     CombatPrompts = {}, ClickDetectors = {},
     AnticheatScripts = {}, AnticheatRemotes = {}, SuspiciousScripts = {},
-    GCRemotesFound = {}, GCFunctionsFound = {}, UpvalueRemotes = {}, RegistryFindings = {},
+    GCRemotesFound = {}, GCFunctionsFound = {}, UpvalueRemotes = {},
+    RegistryFindings = {}, ConstantsFound = {},
     HighValueRemotes = {}, ExploitList = {},
+    SpiedCalls = {}, CallSignatures = {},
+    ScriptSources = {}, DecompiledScripts = {},
+    LocalModules = {}, ObfuscatedRemotes = {},
+    ProtectedInstances = {}, NilParentObjects = {},
     AnticheatType = "Unknown",
-    MemoryStats = { tables = 0, functions = 0, strings = 0 },
     ScanTime = 0, ScanCount = 0,
+    GameId = 0, PlaceId = 0, GameName = "?",
 }
 local connections = {}
 local _origWarn = warn
@@ -79,125 +102,221 @@ local function safeInsert(list, item)
     if not table.find(list, item) then table.insert(list, item); return true end
     return false
 end
+local function argToString(v, depth)
+    depth = depth or 0
+    if depth > 3 then return "<deep>" end
+    local t = typeof(v)
+    if t == "nil" then return "nil"
+    elseif t == "boolean" then return tostring(v)
+    elseif t == "number" then return tostring(v)
+    elseif t == "string" then return '"' .. v:sub(1, 60) .. '"'
+    elseif t == "Instance" then return v.ClassName .. "(" .. v:GetFullName() .. ")"
+    elseif t == "Vector3" then return "Vector3(" .. math.floor(v.X) .. "," .. math.floor(v.Y) .. "," .. math.floor(v.Z) .. ")"
+    elseif t == "CFrame" then return "CFrame(" .. math.floor(v.X) .. "," .. math.floor(v.Y) .. "," .. math.floor(v.Z) .. ")"
+    elseif t == "Color3" then return "Color3"
+    elseif t == "UDim2" then return "UDim2"
+    elseif t == "table" then
+        local n = 0; local parts = {}
+        for k, val in pairs(v) do
+            n = n + 1
+            if n > 6 then table.insert(parts, "..."); break end
+            table.insert(parts, tostring(k) .. "=" .. argToString(val, depth + 1))
+        end
+        return "{" .. table.concat(parts, ", ") .. "}"
+    else return "<" .. t .. ">" end
+end
+local function argsToString(args)
+    if not args or #args == 0 then return "()" end
+    local parts = {}
+    for _, a in ipairs(args) do table.insert(parts, argToString(a, 0)) end
+    return "(" .. table.concat(parts, ", ") .. ")"
+end
 local KEYWORDS = {
-    combat = {"attack","damage","hit","combat","kill","strike","swing","slash","shoot","fire","cast","skill","ability","weapon","hurt","assault","punch","stab","pierce","slay","fight","execute","harm","wound"},
-    damage = {"damage","dealdamage","takedamage","dmg","hurt","inflict","harm","apply","reduce","deduct"},
+    combat = {"attack","damage","hit","combat","kill","strike","swing","slash","shoot","fire","cast","skill","ability","weapon","hurt","assault","punch","stab","pierce","slay","fight","execute","harm","wound","deal","apply"},
+    damage = {"damage","dealdamage","takedamage","dmg","hurt","inflict","harm","apply","reduce","deduct","subtract"},
     boss = {"boss","raid","dungeon","miniboss","elite","warlord","captain","overlord","titan","lord","chief","king","queen","commander","general"},
-    honey = {"ban","kick","anticheat","ac_","log","report","detect","security","flag","suspicious","validate","verif","sanity","protect","admin","moderat","exploit","hack","cheat"},
-    weapon = {"weapon","sword","gun","blade","axe","bow","staff","spear","hammer","knife","dagger","katana","tool"},
+    honey = {"ban","kick","anticheat","ac_","log","report","detect","security","flag","suspicious","validate","verif","sanity","protect","moderat","punish","suspend","warn"},
+    weapon = {"weapon","sword","gun","blade","axe","bow","staff","spear","hammer","knife","dagger","katana","tool","equip"},
     bindable = {"die","dead","kill","damage","death","defeat","expire","perish","destroy","despawn","died","killed"},
-    ability = {"ability","skill","cast","spell","power","special","ultimate","move","technique","use","activate","trigger"},
-    money = {"money","cash","coin","gold","gem","credit","currency","give","reward","bux","robux","dollar","balance","wallet","bank","pay","purchase","buy"},
-    admin = {"admin","staff","developer","dev","owner","gm","gamemaster","moderator","cmd","command","console"},
-    heal = {"heal","regen","restore","cure","revive","respawn","resurrect","medic","recover","refresh"},
-    teleport = {"teleport","tp","bring","goto","warp","travel","move","summon"},
-    chat = {"chat","message","say","talk","announce","speak","broadcast"},
-    spawn = {"spawn","summon","create","instantiate","make","give","grant"},
-    god = {"god","invulnerable","immortal","immune","invincible","shield","forcefield","protect"},
-    delete = {"delete","destroy","wipe","clearall","remove","kill","kick","clear"},
-    execute = {"execute","runcode","dostring","loadcode","loadstring","evalstring","runscript","injector"},
-    kick = {"kick","ban","punish","report","suspend","moderat"},
-    noclip = {"noclip","phase","collide","ghost","passthrough"},
-    speed = {"speed","walkspeed","velocity","fast","boost","dash","run"},
-    kill_all = {"killall","wipeall","clearall","tpsall","masskill"},
-    instant = {"instakill","onehit","oneshot","execute","finish","assassinate"},
-    critical_effect = {"deletemap","wipemap","cleargame","resetserver","shutdownserver","kickall","banall"},
+    ability = {"ability","skill","cast","spell","power","special","ultimate","move","technique","use","activate","trigger","proc"},
+    money = {"money","cash","coin","gold","gem","credit","currency","give","reward","bux","robux","dollar","balance","wallet","bank","pay","purchase","buy","earn","claim","collect","stipend","daily"},
+    admin = {"admin","staff","developer","dev","owner","gm","gamemaster","moderator","cmd","command","console","kohl","adonis","hd","basic","kohls"},
+    heal = {"heal","regen","restore","cure","revive","respawn","resurrect","medic","recover","refresh","fill","top"},
+    teleport = {"teleport","tp","bring","goto","warp","travel","port","spawnat"},
+    chat = {"chat","message","say","talk","announce","speak","broadcast","whisper","tell"},
+    spawn = {"spawn","summon","create","instantiate","make","give","grant","generate"},
+    god = {"god","invulnerable","immortal","immune","invincible","shield","forcefield","protect","invin"},
+    delete = {"delete","destroy","wipe","clearall","remove","clear","despawn","erase"},
+    execute = {"execute","runcode","dostring","loadcode","loadstring","evalstring","runscript","injector","invoke","runcmd"},
+    kick = {"kick","ban","punish","report","suspend","moderat","boot"},
+    noclip = {"noclip","phase","collide","ghost","passthrough","nocollide"},
+    speed = {"speed","walkspeed","velocity","fast","boost","dash","run","sprint"},
+    shop = {"shop","store","market","buy","sell","purchase","merchant","vendor","gambling"},
+    inventory = {"inventory","backpack","item","slot","equip","unequip","stash"},
+    quest = {"quest","mission","task","objective","completeq","claimq","turnin"},
+    trade = {"trade","give","request","accept","gift"},
+    pet = {"pet","mount","companion","summon","hatch","egg","fuse"},
+    vehicle = {"vehicle","car","bike","boat","plane","drive","ride"},
+    build = {"build","place","construct","block","brick","furniture"},
+    claim = {"claim","reclaim","own","occupy","territory"},
+    upgrade = {"upgrade","level","enhance","rank","promote","evolve","ascend"},
+    roll = {"roll","spin","gacha","summon","draw","open","unbox"},
+    lottery = {"lottery","raffle","draw","chance","luck","wheel"},
+    datastore = {"datastore","save","load","persist","cache","store","backup"},
+    session = {"session","login","auth","token","key","verify","validate"},
+    kill_all = {"killall","wipeall","clearall","tpsall","masskill","murderall"},
+    instant = {"instakill","onehit","oneshot","execute","finish","assassinate","instantkill"},
+    critical_effect = {"deletemap","wipemap","cleargame","resetserver","shutdownserver","kickall","banall","destroyall","nukeserver"},
+    backdoor = {"backdoor","admin","execute","runstring","dostring","cmd","command","exploit","hook","bypass","superuser","dev","test","debug"},
 }
 local function scoreVuln(nm, fnm)
     local s = 0
     local fullPath = nm .. "|" .. fnm
-    if matchAny(nm, KEYWORDS.critical_effect) then s = s + 100 end
-    if matchAny(nm, KEYWORDS.instant) then s = s + 60 end
-    if matchAny(nm, KEYWORDS.execute) then s = s + 80 end
-    if matchAny(nm, KEYWORDS.admin) then s = s + 50 end
-    if matchAny(nm, KEYWORDS.money) then s = s + 40 end
-    if matchAny(nm, KEYWORDS.kill_all) then s = s + 70 end
+    if matchAny(nm, KEYWORDS.critical_effect) then s = s + 200 end
+    if matchAny(nm, KEYWORDS.backdoor) then s = s + 100 end
+    if matchAny(nm, KEYWORDS.instant) then s = s + 80 end
+    if matchAny(nm, KEYWORDS.execute) then s = s + 100 end
+    if matchAny(nm, KEYWORDS.admin) then s = s + 60 end
+    if matchAny(nm, KEYWORDS.money) then s = s + 50 end
+    if matchAny(nm, KEYWORDS.kill_all) then s = s + 80 end
+    if matchAny(nm, KEYWORDS.god) then s = s + 45 end
+    if matchAny(nm, KEYWORDS.delete) then s = s + 40 end
     if matchAny(nm, KEYWORDS.damage) then s = s + 30 end
-    if matchAny(nm, KEYWORDS.god) then s = s + 40 end
     if matchAny(nm, KEYWORDS.teleport) then s = s + 25 end
+    if matchAny(nm, KEYWORDS.upgrade) then s = s + 20 end
+    if matchAny(nm, KEYWORDS.roll) then s = s + 20 end
+    if matchAny(nm, KEYWORDS.spawn) then s = s + 20 end
     if matchAny(nm, KEYWORDS.combat) then s = s + 15 end
+    if matchAny(nm, KEYWORDS.shop) then s = s + 15 end
     if matchAny(nm, KEYWORDS.ability) then s = s + 10 end
-    if nm:find("client") then s = s - 20 end
-    if nm:find("server") then s = s + 10 end
-    if matchAny(fnm, KEYWORDS.combat) then s = s + 5 end
-    if matchAny(fullPath, KEYWORDS.honey) then s = -100 end
+    if nm:find("client") then s = s - 30 end
+    if nm:find("server") then s = s + 15 end
+    if nm:find("^_") or nm:find("__") then s = s + 25 end
+    if #nm >= 20 or nm:find("[^%w%s_]") then s = s + 30 end
+    if matchAny(fullPath, KEYWORDS.honey) then s = -1000 end
     return s
 end
 local function classifyExploit(rem)
     local nm = safeLower(rem.Name)
     local fnm = rem.Parent and safeLower(rem.Parent.Name) or ""
+    local fullPath = nm .. "|" .. fnm
     local effect = "UNKNOWN"
     local effectIcon = "❓"
     local risk = "MEDIUM"
     local suggestedArgs = { {rem}, {lp}, {lp.Name} }
+    local category = "misc"
     if matchAny(nm, KEYWORDS.critical_effect) then
-        if nm:find("map") or nm:find("world") then
-            effect = "DELETE MAP"; effectIcon = "🗺️"; risk = "CRITICAL"
-        elseif nm:find("killall") or nm:find("wipeall") then
-            effect = "KILL ALL PLAYERS"; effectIcon = "💀"; risk = "CRITICAL"
-        elseif nm:find("shutdown") or nm:find("reset") then
-            effect = "SHUTDOWN SERVER"; effectIcon = "🔌"; risk = "CRITICAL"
-        else
-            effect = "MASS EFFECT"; effectIcon = "☢️"; risk = "CRITICAL"
-        end
+        if nm:find("map") or nm:find("world") then effect = "DELETE MAP"; effectIcon = "🗺️"; risk = "CRITICAL"
+        elseif nm:find("killall") or nm:find("wipeall") then effect = "KILL ALL PLAYERS"; effectIcon = "💀"; risk = "CRITICAL"
+        elseif nm:find("shutdown") or nm:find("reset") then effect = "SHUTDOWN SERVER"; effectIcon = "🔌"; risk = "CRITICAL"
+        else effect = "MASS EFFECT"; effectIcon = "☢️"; risk = "CRITICAL" end
         suggestedArgs = { {}, {"all"}, {ws} }
+        category = "critical"
+    elseif matchAny(nm, KEYWORDS.backdoor) and (nm:find("dev") or nm:find("debug") or nm:find("test") or nm:find("bypass")) then
+        effect = "SUSPECTED BACKDOOR"; effectIcon = "🚪"; risk = "CRITICAL"
+        suggestedArgs = { {"print('bd')"}, {}, {lp} }
+        category = "backdoor"
     elseif matchAny(nm, KEYWORDS.money) then
         effect = "GET MONEY/RESOURCE"; effectIcon = "💰"; risk = "HIGH"
         suggestedArgs = { {lp, math.huge}, {math.huge}, {lp.Name, 999999999}, {"give", lp.Name, "money", math.huge} }
+        category = "money"
+    elseif matchAny(nm, KEYWORDS.upgrade) then
+        effect = "UPGRADE / LEVEL"; effectIcon = "⬆️"; risk = "MEDIUM"
+        suggestedArgs = { {lp}, {math.huge}, {lp.Name, 999} }
+        category = "upgrade"
+    elseif matchAny(nm, KEYWORDS.roll) then
+        effect = "ROLL / GACHA"; effectIcon = "🎰"; risk = "MEDIUM"
+        suggestedArgs = { {}, {lp}, {"legendary"}, {math.huge} }
+        category = "roll"
+    elseif matchAny(nm, KEYWORDS.shop) then
+        effect = "SHOP / PURCHASE"; effectIcon = "🛒"; risk = "MEDIUM"
+        suggestedArgs = { {lp}, {"free"}, {0}, {1} }
+        category = "shop"
+    elseif matchAny(nm, KEYWORDS.pet) then
+        effect = "PET / HATCH"; effectIcon = "🐾"; risk = "MEDIUM"
+        suggestedArgs = { {}, {"legendary"}, {math.huge} }
+        category = "pet"
+    elseif matchAny(nm, KEYWORDS.quest) then
+        effect = "QUEST COMPLETE"; effectIcon = "📜"; risk = "MEDIUM"
+        suggestedArgs = { {lp}, {"all"}, {math.huge} }
+        category = "quest"
+    elseif matchAny(nm, KEYWORDS.claim) then
+        effect = "CLAIM REWARD"; effectIcon = "🎁"; risk = "MEDIUM"
+        suggestedArgs = { {}, {lp}, {"daily"} }
+        category = "claim"
     elseif matchAny(nm, KEYWORDS.god) then
         effect = "GOD MODE"; effectIcon = "🛡️"; risk = "HIGH"
         suggestedArgs = { {lp, true}, {true}, {lp.Name, true} }
+        category = "god"
     elseif matchAny(nm, KEYWORDS.admin) then
         effect = "ADMIN ACCESS"; effectIcon = "👑"; risk = "CRITICAL"
-        suggestedArgs = { {lp}, {lp.Name}, {"admin", lp.Name} }
+        suggestedArgs = { {lp}, {lp.Name}, {"admin " .. lp.Name} }
+        category = "admin"
     elseif matchAny(nm, KEYWORDS.execute) then
         effect = "REMOTE CODE EXEC"; effectIcon = "🚨"; risk = "CRITICAL"
-        suggestedArgs = { {"print('found via GameAnalyzer')"}, {"local p=game.Players.LocalPlayer;print(p.Name)"} }
+        suggestedArgs = { {"print('exec-test')"}, {"game.Players.LocalPlayer.Name"} }
+        category = "execute"
     elseif matchAny(nm, KEYWORDS.teleport) then
         effect = "TELEPORT"; effectIcon = "📍"; risk = "MEDIUM"
         suggestedArgs = { {lp, Vector3.new(0, 50, 0)}, {Vector3.new(0, 50, 0)} }
+        category = "teleport"
     elseif matchAny(nm, KEYWORDS.delete) then
         effect = "DELETE OBJECTS"; effectIcon = "🗑️"; risk = "HIGH"
         suggestedArgs = { {}, {"all"} }
+        category = "delete"
     elseif matchAny(nm, KEYWORDS.kick) then
-        effect = "KICK/BAN"; effectIcon = "🚫"; risk = "HIGH"
+        effect = "KICK/BAN OTHERS"; effectIcon = "🚫"; risk = "HIGH"
         suggestedArgs = {}
         for _, p in ipairs(plrs:GetPlayers()) do
             if p ~= lp then table.insert(suggestedArgs, {p}); if #suggestedArgs >= 2 then break end end
         end
+        category = "kick"
     elseif matchAny(nm, KEYWORDS.heal) then
         effect = "HEAL/REVIVE"; effectIcon = "💚"; risk = "LOW"
         suggestedArgs = { {lp}, {lp, math.huge} }
+        category = "heal"
     elseif matchAny(nm, KEYWORDS.spawn) then
-        effect = "SPAWN ITEM/BOSS"; effectIcon = "✨"; risk = "MEDIUM"
+        effect = "SPAWN ITEM"; effectIcon = "✨"; risk = "MEDIUM"
         suggestedArgs = { {lp}, {"Sword"}, {"boss"} }
+        category = "spawn"
+    elseif matchAny(nm, KEYWORDS.trade) then
+        effect = "TRADE / GIFT"; effectIcon = "🎁"; risk = "MEDIUM"
+        suggestedArgs = { {lp, math.huge}, {"give"} }
+        category = "trade"
     elseif matchAny(nm, KEYWORDS.chat) then
         effect = "CHAT/MESSAGE"; effectIcon = "💬"; risk = "LOW"
         suggestedArgs = { {"HELLO"}, {"/e"} }
+        category = "chat"
     elseif matchAny(nm, KEYWORDS.speed) then
         effect = "SPEED"; effectIcon = "💨"; risk = "LOW"
         suggestedArgs = { {lp, 999}, {999} }
+        category = "speed"
     elseif matchAny(nm, KEYWORDS.noclip) then
         effect = "NOCLIP"; effectIcon = "👻"; risk = "LOW"
         suggestedArgs = { {lp, false}, {false} }
+        category = "noclip"
     elseif matchAny(nm, KEYWORDS.damage) then
         effect = "DAMAGE ENTITY"; effectIcon = "⚔️"; risk = "MEDIUM"
         suggestedArgs = { {math.huge}, {lp, math.huge} }
+        category = "damage"
     elseif matchAny(nm, KEYWORDS.combat) then
         effect = "COMBAT ACTION"; effectIcon = "⚔️"; risk = "MEDIUM"
         suggestedArgs = { {}, {lp} }
+        category = "combat"
     elseif matchAny(nm, KEYWORDS.boss) then
         effect = "BOSS INTERACT"; effectIcon = "👹"; risk = "HIGH"
         suggestedArgs = { {math.huge}, {"kill"} }
+        category = "boss"
     end
     return {
         remote = rem, path = rem:GetFullName(), class = rem.ClassName,
         risk = risk, effect = effect, effectIcon = effectIcon,
         suggestedArgs = suggestedArgs, source = "AutoClass",
-        name = rem.Name,
+        name = rem.Name, category = category,
+        score = scoreVuln(nm, fnm),
     }
 end
-local function indexRemote(obj)
+local function indexObject(obj)
     if not obj then return end
     pcall(function()
         local cls = obj.ClassName
@@ -206,28 +325,33 @@ local function indexRemote(obj)
         local fullPath = nm .. "|" .. fnm
         if cls == "RemoteEvent" or cls == "RemoteFunction" then
             if matchAny(fullPath, KEYWORDS.honey) then
-                safeInsert(DeepData.AnticheatRemotes, obj)
-                return
+                safeInsert(DeepData.AnticheatRemotes, obj); return
             end
             local score = scoreVuln(nm, fnm)
             if score >= 40 then safeInsert(DeepData.HighValueRemotes, obj) end
+            if #nm >= 20 or nm:find("^%w+%W%w+") == nil then
+                safeInsert(DeepData.ObfuscatedRemotes, obj)
+            end
             local matched = false
-            for _, cat in ipairs({
-                {"combat", "CombatRemotes"}, {"damage", "DamageRemotes"},
-                {"boss", "BossRemotes"}, {"ability", "AbilityRemotes"},
-                {"money", "MoneyRemotes"}, {"admin", "AdminRemotes"},
-                {"heal", "HealRemotes"}, {"teleport", "TeleportRemotes"},
-                {"chat", "ChatRemotes"}, {"spawn", "SpawnRemotes"},
-                {"god", "GodRemotes"}, {"delete", "DeleteRemotes"},
-                {"execute", "ExecuteRemotes"}, {"noclip", "NoclipRemotes"},
-                {"speed", "SpeedRemotes"}, {"kick", "KillRemotes"},
-            }) do
+            local categoryMap = {
+                {"combat","CombatRemotes"},{"damage","DamageRemotes"},{"boss","BossRemotes"},
+                {"ability","AbilityRemotes"},{"money","MoneyRemotes"},{"admin","AdminRemotes"},
+                {"heal","HealRemotes"},{"teleport","TeleportRemotes"},{"chat","ChatRemotes"},
+                {"spawn","SpawnRemotes"},{"god","GodRemotes"},{"delete","DeleteRemotes"},
+                {"execute","ExecuteRemotes"},{"noclip","NoclipRemotes"},{"speed","SpeedRemotes"},
+                {"kick","KillRemotes"},{"shop","ShopRemotes"},{"inventory","InventoryRemotes"},
+                {"quest","QuestRemotes"},{"trade","TradeRemotes"},{"pet","PetRemotes"},
+                {"vehicle","VehicleRemotes"},{"build","BuildRemotes"},{"claim","ClaimRemotes"},
+                {"upgrade","UpgradeRemotes"},{"roll","RollRemotes"},{"lottery","LotteryRemotes"},
+                {"datastore","DataStoreRemotes"},{"session","SessionRemotes"},
+            }
+            for _, cat in ipairs(categoryMap) do
                 if matchAny(fullPath, KEYWORDS[cat[1]]) then
-                    safeInsert(DeepData[cat[2]], obj)
-                    matched = true
+                    safeInsert(DeepData[cat[2]], obj); matched = true
                 end
             end
             if not matched then safeInsert(DeepData.UnknownRemotes, obj) end
+            if nm:find("^_") or nm:find("__") then safeInsert(DeepData.InternalRemotes, obj) end
         elseif cls == "Tool" then
             for _, r in ipairs(obj:GetDescendants()) do
                 if r:IsA("RemoteEvent") or r:IsA("RemoteFunction") then safeInsert(DeepData.WeaponRemotes, r) end
@@ -237,17 +361,19 @@ local function indexRemote(obj)
             if matchAny(nm, KEYWORDS.bindable) then safeInsert(DeepData.Bindables, obj) end
         elseif cls == "LocalScript" or cls == "Script" or cls == "ModuleScript" then
             if matchAny(fullPath, KEYWORDS.honey) then safeInsert(DeepData.AnticheatScripts, obj) end
+            if cls == "ModuleScript" then safeInsert(DeepData.LocalModules, obj) end
             pcall(function()
                 if obj.Source and type(obj.Source) == "string" then
                     local src = obj.Source:lower()
-                    if src:find("loadstring") or src:find("getfenv%(") then
+                    if src:find("loadstring") or src:find("getfenv%(") or src:find("hookmetamethod") then
                         safeInsert(DeepData.SuspiciousScripts, obj)
                     end
+                    DeepData.ScriptSources[obj:GetFullName()] = obj.Source:sub(1, 500)
                 end
             end)
         elseif cls == "ProximityPrompt" then
             local pnm = safeLower(obj.ObjectText or "") .. "|" .. safeLower(obj.ActionText or "")
-            if matchAny(pnm, KEYWORDS.combat) or matchAny(pnm, KEYWORDS.money) then
+            if matchAny(pnm, KEYWORDS.combat) or matchAny(pnm, KEYWORDS.money) or matchAny(pnm, KEYWORDS.shop) then
                 safeInsert(DeepData.CombatPrompts, obj)
             end
         elseif cls == "ClickDetector" then
@@ -256,8 +382,7 @@ local function indexRemote(obj)
     end)
 end
 local function scanForBosses()
-    DeepData.BossModels = {}
-    DeepData.NPCs = {}
+    DeepData.BossModels = {}; DeepData.NPCs = {}; DeepData.HiddenModels = {}
     for _, m in ipairs(ws:GetDescendants()) do
         if m:IsA("Model") and m ~= lp.Character and not plrs:GetPlayerFromCharacter(m) then
             pcall(function()
@@ -267,18 +392,21 @@ local function scanForBosses()
                 local isBoss = matchAny(nm, KEYWORDS.boss) or m:GetAttribute("Boss") or m:GetAttribute("IsBoss") or (h.MaxHealth >= 1000)
                 if isBoss then safeInsert(DeepData.BossModels, m) end
                 safeInsert(DeepData.NPCs, m)
+                if m.Parent ~= ws and not m.Parent:IsA("Model") then
+                    safeInsert(DeepData.HiddenModels, m)
+                end
             end)
         end
     end
 end
 local function detectAnticheatType()
-    DeepData.AnticheatType = "Unknown"
+    DeepData.AnticheatType = "None detected"
     local knownACs = {
-        {"antiexploit", "AntiExploit"}, {"kohl", "Kohl's Admin"},
-        {"hydroxide", "Hydroxide"}, {"cerebrus", "Cerebrus"},
-        {"vermilion", "Vermilion"}, {"eremito", "Eremito"},
-        {"stronghold", "Stronghold"}, {"sentinel", "Sentinel"},
-        {"guard", "GuardV3"}, {"anticheat", "Generic AC"},
+        {"antiexploit","AntiExploit"},{"kohl","Kohl's Admin"},{"hydroxide","Hydroxide"},
+        {"cerebrus","Cerebrus"},{"vermilion","Vermilion"},{"eremito","Eremito"},
+        {"stronghold","Stronghold"},{"sentinel","Sentinel"},{"guard","GuardV3"},
+        {"anticheat","Generic AC"},{"adonis","Adonis"},{"hddonate","HD Admin"},
+        {"basicadmin","Basic Admin"},{"clockwork","Clockwork"},
     }
     for _, s in ipairs(DeepData.AnticheatScripts) do
         pcall(function()
@@ -288,19 +416,19 @@ local function detectAnticheatType()
             end
         end)
     end
-    if DeepData.AnticheatType == "Unknown" and #DeepData.AnticheatScripts > 0 then
-        DeepData.AnticheatType = "Generic (" .. #DeepData.AnticheatScripts .. " scripts)"
+    if DeepData.AnticheatType == "None detected" and #DeepData.AnticheatScripts > 0 then
+        DeepData.AnticheatType = "Unknown (" .. #DeepData.AnticheatScripts .. " scripts)"
     end
 end
 local ScanState = { running = false }
 local function scanGarbageCollector()
-    if not getgc then return end
-    if ScanState.running then return end
+    if not getgc or ScanState.running then return end
     ScanState.running = true
     task.spawn(function()
         pcall(function()
             DeepData.GCRemotesFound = {}
             DeepData.GCFunctionsFound = {}
+            DeepData.ConstantsFound = {}
             local BATCH = 200
             local gc = getgc(true)
             for i, obj in ipairs(gc) do
@@ -318,15 +446,25 @@ local function scanGarbageCollector()
                             local info = debug.getinfo(obj, "S")
                             if info and info.source then
                                 local src = safeLower(info.source)
-                                if src:find("combat") or src:find("damage") or src:find("weapon") or src:find("money") or src:find("admin") then
+                                if src:find("combat") or src:find("damage") or src:find("weapon") or src:find("money") or src:find("admin") or src:find("backdoor") then
                                     safeInsert(DeepData.GCFunctionsFound, obj)
+                                end
+                            end
+                        end
+                        if getconstants then
+                            local consts = getconstants(obj)
+                            if consts then
+                                for _, c in pairs(consts) do
+                                    if type(c) == "string" and (c:find("kick") or c:find("ban") or c:find("admin") or c:find("execute")) and #c < 100 then
+                                        safeInsert(DeepData.ConstantsFound, c)
+                                    end
                                 end
                             end
                         end
                     end)
                 end
                 if i % BATCH == 0 then task.wait() end
-                if i > 40000 then break end
+                if i > 50000 then break end
             end
         end)
         ScanState.running = false
@@ -337,7 +475,7 @@ local function scanUpvalues()
     task.spawn(function()
         pcall(function()
             DeepData.UpvalueRemotes = {}
-            local BATCH = 100
+            local BATCH = 150
             for i, fn in ipairs(getgc(true)) do
                 if type(fn) == "function" then
                     pcall(function()
@@ -352,9 +490,68 @@ local function scanUpvalues()
                     end)
                 end
                 if i % BATCH == 0 then task.wait() end
-                if i > 20000 then break end
+                if i > 25000 then break end
             end
         end)
+    end)
+end
+local function scanNilParents()
+    if not Settings.DeepAccess then return end
+    if not getgc then return end
+    DeepData.NilParentObjects = {}
+    pcall(function()
+        for _, obj in ipairs(getgc(true)) do
+            if typeof(obj) == "Instance" then
+                pcall(function()
+                    if obj.Parent == nil and (obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") or obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("ModuleScript")) then
+                        safeInsert(DeepData.NilParentObjects, obj)
+                    end
+                end)
+            end
+        end
+    end)
+end
+local function attemptDecompile()
+    if not decompile then return end
+    DeepData.DecompiledScripts = {}
+    pcall(function()
+        for _, s in ipairs(DeepData.AnticheatScripts) do
+            pcall(function()
+                local src = decompile(s)
+                if src and type(src) == "string" and #src > 20 then
+                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 1500)
+                end
+            end)
+        end
+        for _, s in ipairs(DeepData.SuspiciousScripts) do
+            pcall(function()
+                local src = decompile(s)
+                if src and type(src) == "string" and #src > 20 then
+                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 1500)
+                end
+            end)
+        end
+    end)
+end
+local function scanProtectedInstances()
+    DeepData.ProtectedInstances = {}
+    pcall(function()
+        for _, svc in ipairs({"ReplicatedFirst","ServerStorage","ServerScriptService"}) do
+            pcall(function()
+                local s = game:GetService(svc)
+                if s then
+                    for _, d in ipairs(s:GetDescendants()) do
+                        pcall(function()
+                            if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") or d:IsA("ModuleScript") then
+                                safeInsert(DeepData.ProtectedInstances, {
+                                    obj = d, service = svc, path = d:GetFullName(), class = d.ClassName
+                                })
+                            end
+                        end)
+                    end
+                end
+            end)
+        end
     end)
 end
 local function buildExploitList()
@@ -365,15 +562,23 @@ local function buildExploitList()
         seen[rem] = true
         pcall(function() table.insert(DeepData.ExploitList, classifyExploit(rem)) end)
     end
-    for _, cat in ipairs({"MoneyRemotes","AdminRemotes","GodRemotes","ExecuteRemotes",
+    local categories = {"MoneyRemotes","AdminRemotes","GodRemotes","ExecuteRemotes",
         "TeleportRemotes","KillRemotes","DeleteRemotes","HealRemotes","SpawnRemotes",
         "ChatRemotes","SpeedRemotes","NoclipRemotes","BossRemotes","DamageRemotes",
-        "CombatRemotes","HighValueRemotes","AbilityRemotes"}) do
+        "CombatRemotes","HighValueRemotes","AbilityRemotes","ShopRemotes","InventoryRemotes",
+        "QuestRemotes","TradeRemotes","PetRemotes","VehicleRemotes","BuildRemotes",
+        "ClaimRemotes","UpgradeRemotes","RollRemotes","LotteryRemotes","DataStoreRemotes",
+        "ObfuscatedRemotes","InternalRemotes"}
+    for _, cat in ipairs(categories) do
         for _, r in ipairs(DeepData[cat]) do add(r) end
     end
     for _, r in ipairs(DeepData.GCRemotesFound) do add(r) end
     for _, r in ipairs(DeepData.UpvalueRemotes) do add(r) end
+    for _, obj in ipairs(DeepData.NilParentObjects) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then add(obj) end
+    end
     table.sort(DeepData.ExploitList, function(a, b)
+        if a.score ~= b.score then return (a.score or 0) > (b.score or 0) end
         local order = { CRITICAL = 4, HIGH = 3, MEDIUM = 2, LOW = 1 }
         return (order[a.risk] or 0) > (order[b.risk] or 0)
     end)
@@ -381,60 +586,115 @@ end
 local LastScanTime = 0
 local function runFullAnalysis(force)
     local now = tick()
-    if not force and (now - LastScanTime) < 20 then
-        warn("[ANALYZER] Skip — прошло меньше 20 сек")
-        return
-    end
+    if not force and (now - LastScanTime) < 15 then warn("[ANALYZER] Skip"); return end
     LastScanTime = now
     DeepData.ScanCount = DeepData.ScanCount + 1
     for k, v in pairs(DeepData) do
-        if type(v) == "table" and k ~= "MemoryStats" then
+        if type(v) == "table" and k ~= "ScriptSources" and k ~= "DecompiledScripts" and k ~= "SpiedCalls" and k ~= "CallSignatures" then
             DeepData[k] = {}
         end
     end
-    DeepData.AnticheatType = "Unknown"
-    local sources = {rep, ws, game:GetService("StarterPack"), game:GetService("StarterGui"), game:GetService("StarterPlayer")}
+    DeepData.ScriptSources = {}
+    DeepData.AnticheatType = "None detected"
+    pcall(function()
+        DeepData.GameId = game.GameId
+        DeepData.PlaceId = game.PlaceId
+        DeepData.GameName = game.Name
+    end)
+    local sources = { rep, ws, game:GetService("StarterPack"), game:GetService("StarterGui"), game:GetService("StarterPlayer") }
     for _, s in ipairs(sources) do
-        pcall(function() for _, o in ipairs(s:GetDescendants()) do indexRemote(o) end end)
+        pcall(function() for _, o in ipairs(s:GetDescendants()) do indexObject(o) end end)
     end
     for _, p in ipairs(plrs:GetPlayers()) do
         local bp = p:FindFirstChild("Backpack")
-        if bp then for _, o in ipairs(bp:GetDescendants()) do indexRemote(o) end end
+        if bp then for _, o in ipairs(bp:GetDescendants()) do indexObject(o) end end
+    end
+    if Settings.DeepAccess then
+        scanProtectedInstances()
     end
     scanForBosses()
     detectAnticheatType()
     scanGarbageCollector()
     scanUpvalues()
+    if Settings.DeepAccess then scanNilParents() end
     task.wait(1)
+    attemptDecompile()
     buildExploitList()
     DeepData.ScanTime = tick() - now
-    warn("╔═══════════════════════════════════════╗")
-    warn("║ 🔬 GAME ANALYZER v1 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
-    warn("╠═══════════════════════════════════════╣")
-    warn(string.format("║ 🚪 Total exploits found: %d", #DeepData.ExploitList))
-    warn(string.format("║ 💰 Money: %d  |  👑 Admin: %d  |  🛡️ God: %d",
+    warn("╔═════════════════════════════════════════════╗")
+    warn("║ 🔬 GAME ANALYZER v2 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
+    warn("║ 🎮 " .. tostring(DeepData.GameName) .. " (place=" .. tostring(DeepData.PlaceId) .. ")")
+    warn("╠═════════════════════════════════════════════╣")
+    warn(string.format("║ 🚪 Total exploits: %d", #DeepData.ExploitList))
+    warn(string.format("║ 💰 Money:%d  👑 Admin:%d  🛡️ God:%d",
         #DeepData.MoneyRemotes, #DeepData.AdminRemotes, #DeepData.GodRemotes))
-    warn(string.format("║ 🚨 Execute: %d  |  📍 TP: %d  |  💀 Kill: %d",
-        #DeepData.ExecuteRemotes, #DeepData.TeleportRemotes, #DeepData.KillRemotes))
-    warn(string.format("║ ⚔️ Combat: %d  |  👹 Boss: %d  |  ❓ Unknown: %d",
-        #DeepData.CombatRemotes, #DeepData.BossRemotes, #DeepData.UnknownRemotes))
+    warn(string.format("║ 🚨 Execute:%d  🛒 Shop:%d  🎰 Roll:%d",
+        #DeepData.ExecuteRemotes, #DeepData.ShopRemotes, #DeepData.RollRemotes))
+    warn(string.format("║ 🔬 GC-found:%d  🔬 Upvalue:%d  🕳️ NilParent:%d",
+        #DeepData.GCRemotesFound, #DeepData.UpvalueRemotes, #DeepData.NilParentObjects))
     warn(string.format("║ 🎭 AntiCheat: %s (%d scripts)", DeepData.AnticheatType, #DeepData.AnticheatScripts))
-    warn("╚═══════════════════════════════════════╝")
+    warn(string.format("║ 🕵️ Decompiled: %d  🔒 Protected: %d",
+        (function() local c=0; for _ in pairs(DeepData.DecompiledScripts) do c=c+1 end; return c end)(),
+        #DeepData.ProtectedInstances))
+    warn("╚═════════════════════════════════════════════╝")
 end
-ws.DescendantAdded:Connect(function(obj) if obj then indexRemote(obj) end end)
-rep.DescendantAdded:Connect(function(obj) if obj then indexRemote(obj) end end)
+ws.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
+rep.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
+local RemoteSpy = { installed = false, active = false }
+function RemoteSpy:Install()
+    if self.installed then return end
+    self.installed = true
+    if not hookmetamethod then return end
+    pcall(function()
+        local old
+        old = hookmetamethod(game, "__namecall", function(self, ...)
+            local m = getnamecallmethod and getnamecallmethod() or ""
+            if RemoteSpy.active and (m == "FireServer" or m == "InvokeServer") then
+                if typeof(self) == "Instance" and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")) then
+                    local args = {...}
+                    pcall(function()
+                        local sig = { rem = self, method = m, args = args, time = tick(), path = self:GetFullName() }
+                        table.insert(DeepData.SpiedCalls, 1, sig)
+                        if #DeepData.SpiedCalls > Settings.SpyMaxCalls then
+                            table.remove(DeepData.SpiedCalls)
+                        end
+                        local key = self:GetFullName()
+                        if not DeepData.CallSignatures[key] then
+                            DeepData.CallSignatures[key] = { remote = self, samples = {}, count = 0 }
+                        end
+                        DeepData.CallSignatures[key].count = DeepData.CallSignatures[key].count + 1
+                        if #DeepData.CallSignatures[key].samples < 5 then
+                            table.insert(DeepData.CallSignatures[key].samples, args)
+                        end
+                    end)
+                end
+            end
+            return old(self, ...)
+        end)
+    end)
+end
+function RemoteSpy:Toggle(state)
+    self.active = state
+    if state and not self.installed then self:Install() end
+end
 local function executeExploit(exp)
-    if not exp or not exp.remote or not exp.remote.Parent then return false, "no remote" end
+    if not exp or not exp.remote or not exp.remote.Parent then return false end
     local rem = exp.remote
     local fired = 0
+    local key = rem:GetFullName()
+    if DeepData.CallSignatures[key] and #DeepData.CallSignatures[key].samples > 0 then
+        for _, args in ipairs(DeepData.CallSignatures[key].samples) do
+            pcall(function()
+                if rem:IsA("RemoteEvent") then rem:FireServer(unpack(args)); fired = fired + 1
+                elseif rem:IsA("RemoteFunction") then task.spawn(function() pcall(function() rem:InvokeServer(unpack(args)) end) end); fired = fired + 1 end
+            end)
+        end
+    end
     for _, args in ipairs(exp.suggestedArgs or {{}}) do
         pcall(function()
             if type(args) == "table" then
                 if rem:IsA("RemoteEvent") then rem:FireServer(unpack(args)); fired = fired + 1
                 elseif rem:IsA("RemoteFunction") then task.spawn(function() pcall(function() rem:InvokeServer(unpack(args)) end) end); fired = fired + 1 end
-            else
-                if rem:IsA("RemoteEvent") then rem:FireServer(args); fired = fired + 1
-                elseif rem:IsA("RemoteFunction") then task.spawn(function() pcall(function() rem:InvokeServer(args) end) end); fired = fired + 1 end
             end
         end)
     end
@@ -444,6 +704,118 @@ local function executeExploit(exp)
     end
     warn("[🚪 EXEC " .. exp.effectIcon .. "] " .. exp.effect .. " → " .. exp.path .. " (fired " .. fired .. ")")
     return true, fired
+end
+local function copyToClipboard(text)
+    if setclipboard then
+        pcall(function() setclipboard(text) end)
+        return true
+    end
+    warn("[📋] setclipboard недоступен — text:\n" .. text:sub(1, 500))
+    return false
+end
+local function exploitToScript(exp)
+    local args = exp.suggestedArgs and exp.suggestedArgs[1] or {}
+    local argsStr = argsToString(args):sub(2, -2)
+    local line
+    if exp.class == "RemoteEvent" then
+        line = 'game:GetService("' .. exp.remote.Parent.ClassName .. '"):FindFirstChild("...")'
+        line = "-- " .. exp.effectIcon .. " " .. exp.effect .. " [" .. exp.risk .. "]\n"
+        line = line .. "-- Path: " .. exp.path .. "\n"
+        line = line .. 'local rem = game:GetService("Players"):FindFirstChild("dummy") -- заменить на путь!\n'
+        line = line .. 'local target = game:GetService("Workspace")\n'
+        line = line .. 'for _, part in ipairs({' .. table.concat({}, ",") .. '}) do end\n'
+        line = line .. '-- Try: rem:FireServer(' .. argsStr .. ')'
+    else
+        line = "-- " .. exp.effectIcon .. " " .. exp.effect .. " [" .. exp.risk .. "]\n"
+        line = line .. "-- Path: " .. exp.path .. "\n"
+        line = line .. 'local rem = "..." -- заменить\n'
+        line = line .. '-- rem:InvokeServer(' .. argsStr .. ')'
+    end
+    return line
+end
+local function exploitToReadableInfo(exp)
+    local out = {}
+    table.insert(out, "═════════════════════════════════")
+    table.insert(out, exp.effectIcon .. " " .. exp.effect .. " [RISK: " .. exp.risk .. "]")
+    table.insert(out, "═════════════════════════════════")
+    table.insert(out, "Name: " .. exp.name)
+    table.insert(out, "Class: " .. exp.class)
+    table.insert(out, "Path: " .. exp.path)
+    table.insert(out, "Category: " .. exp.category)
+    table.insert(out, "Vuln-Score: " .. tostring(exp.score))
+    table.insert(out, "")
+    table.insert(out, "SUGGESTED ARGS:")
+    for i, args in ipairs(exp.suggestedArgs or {}) do
+        table.insert(out, "  [" .. i .. "] " .. argsToString(args))
+    end
+    local key = exp.remote and exp.remote:GetFullName()
+    if key and DeepData.CallSignatures[key] then
+        local sig = DeepData.CallSignatures[key]
+        table.insert(out, "")
+        table.insert(out, "REAL CALLS RECORDED: " .. sig.count)
+        for i, args in ipairs(sig.samples) do
+            if i > 3 then break end
+            table.insert(out, "  [live] " .. argsToString(args))
+        end
+    end
+    table.insert(out, "")
+    table.insert(out, "EXECUTE via Lua:")
+    table.insert(out, 'loadstring([[')
+    table.insert(out, '  local rem = game.' .. exp.path:gsub("Workspace", 'Workspace'):gsub("ReplicatedStorage", 'ReplicatedStorage'))
+    if exp.class == "RemoteEvent" then
+        for _, args in ipairs(exp.suggestedArgs or {}) do
+            table.insert(out, '  rem:FireServer(' .. argsToString(args):sub(2,-2) .. ')')
+        end
+    else
+        for _, args in ipairs(exp.suggestedArgs or {}) do
+            table.insert(out, '  rem:InvokeServer(' .. argsToString(args):sub(2,-2) .. ')')
+        end
+    end
+    table.insert(out, ']])()') 
+    return table.concat(out, "\n")
+end
+local function fullReportToString()
+    local out = {}
+    table.insert(out, "╔═════════════════════════════════════════════╗")
+    table.insert(out, "║ 🔬 GAME ANALYZER v2 — FULL REPORT           ║")
+    table.insert(out, "║ Scan #" .. DeepData.ScanCount .. " | " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
+    table.insert(out, "║ 🎮 " .. tostring(DeepData.GameName))
+    table.insert(out, "║ GameId=" .. DeepData.GameId .. " | PlaceId=" .. DeepData.PlaceId)
+    table.insert(out, "║ 🎭 AntiCheat: " .. DeepData.AnticheatType)
+    table.insert(out, "╠═════════════════════════════════════════════╣")
+    table.insert(out, "\n=== ALL EXPLOITS BY CATEGORY ===\n")
+    local byCat = {}
+    for _, exp in ipairs(DeepData.ExploitList) do
+        byCat[exp.category] = byCat[exp.category] or {}
+        table.insert(byCat[exp.category], exp)
+    end
+    for cat, list in pairs(byCat) do
+        table.insert(out, "\n--- " .. cat:upper() .. " (" .. #list .. ") ---")
+        for i, exp in ipairs(list) do
+            if i > 5 then table.insert(out, "  ... +" .. (#list - 5) .. " more"); break end
+            table.insert(out, "  " .. exp.effectIcon .. " [" .. exp.risk .. "] " .. exp.name)
+            table.insert(out, "    Path: " .. exp.path)
+        end
+    end
+    table.insert(out, "\n=== SPIED CALLS (last 20) ===")
+    for i, call in ipairs(DeepData.SpiedCalls) do
+        if i > 20 then break end
+        table.insert(out, "  " .. call.method .. " → " .. call.path)
+        table.insert(out, "    args: " .. argsToString(call.args))
+    end
+    table.insert(out, "\n=== PROTECTED INSTANCES ===")
+    for _, pi in ipairs(DeepData.ProtectedInstances) do
+        table.insert(out, "  [" .. pi.service .. "] " .. pi.class .. ": " .. pi.path)
+    end
+    table.insert(out, "\n=== DECOMPILED SCRIPTS (top 3) ===")
+    local dc = 0
+    for path, src in pairs(DeepData.DecompiledScripts) do
+        dc = dc + 1
+        if dc > 3 then break end
+        table.insert(out, "\n--- " .. path .. " ---")
+        table.insert(out, src:sub(1, 400))
+    end
+    return table.concat(out, "\n")
 end
 local AK = { active = false, installed = false, hooks = {}, blocked = 0, layers = 0 }
 local BAN_KW = {"kick","ban","anticheat","ac_","punish","report","detect","suspend","moderat","admin","exploit","hack","cheat","suspicious","violation","flag","warn"}
@@ -457,15 +829,14 @@ function AK:Install()
     if self.installed then return end
     self.installed = true
     self.layers = 0
-    print("[🛡️ AK v1] Installing FE-safe Anti-Kick...")
     if hookfunction then
         pcall(function()
             local orig
             orig = hookfunction(lp.Kick, function(...)
-                if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L1] Kick #" .. AK.blocked .. " blocked"); return end
+                if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L1] Kick blocked #" .. AK.blocked); return end
                 return orig(...)
             end)
-            AK.layers = AK.layers + 1; print("[🛡️ L1] hookfunction(lp.Kick) OK")
+            AK.layers = AK.layers + 1
         end)
     end
     if getrawmetatable and setreadonly then
@@ -475,73 +846,67 @@ function AK:Install()
             local oldIndex = mt.__index
             local newIndex = function(s, k)
                 if AK.active and k == "Kick" and typeof(s) == "Instance" and s:IsA("Player") then
-                    return function() AK.blocked = AK.blocked + 1; warn("[🛡️ L2] Kick #" .. AK.blocked .. " intercepted") end
+                    return function() AK.blocked = AK.blocked + 1; warn("[🛡️ L2] Kick intercepted") end
                 end
                 if type(oldIndex) == "function" then return oldIndex(s, k) end
                 return oldIndex[k]
             end
             mt.__index = newcclosure and newcclosure(newIndex) or newIndex
             setreadonly(mt, true)
-            AK.layers = AK.layers + 1; print("[🛡️ L2] metatable __index OK")
+            AK.layers = AK.layers + 1
         end)
     end
     pcall(function()
         local count = 0
-        local function scanFor(cont)
-            for _, r in ipairs(cont:GetDescendants()) do
+        for _, s in ipairs({rep, ws}) do
+            for _, r in ipairs(s:GetDescendants()) do
                 if r:IsA("RemoteEvent") and isBanRemote(r) then
                     if getconnections then
                         pcall(function()
                             for _, c in ipairs(getconnections(r.OnClientEvent)) do
-                                pcall(function() c:Disable() end)
-                                count = count + 1
+                                pcall(function() c:Disable() end); count = count + 1
                             end
                         end)
                     end
                     table.insert(AK.hooks, r.OnClientEvent:Connect(function()
-                        if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L3] Ban-remote blocked:", r.Name) end
+                        if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L3] Ban-remote blocked") end
                     end))
                 end
             end
         end
-        scanFor(rep); scanFor(ws)
-        AK.layers = AK.layers + 1; print("[🛡️ L3] Ban-remote connections killed: " .. count)
+        AK.layers = AK.layers + 1
     end)
     pcall(function()
-        connections["ak_desc_watch"] = ws.DescendantAdded:Connect(function(obj)
+        connections["ak_desc"] = ws.DescendantAdded:Connect(function(obj)
             if AK.active and obj:IsA("RemoteEvent") and isBanRemote(obj) then
                 pcall(function()
                     table.insert(AK.hooks, obj.OnClientEvent:Connect(function()
-                        AK.blocked = AK.blocked + 1
-                        warn("[🛡️ L4] Runtime ban-remote blocked:", obj.Name)
+                        AK.blocked = AK.blocked + 1; warn("[🛡️ L4] Runtime ban-remote blocked")
                     end))
                 end)
             end
         end)
-        AK.layers = AK.layers + 1; print("[🛡️ L4] Runtime ban-remote watcher OK")
+        AK.layers = AK.layers + 1
     end)
     pcall(function()
         if hookfunction then
-            local TeleportService = game:GetService("TeleportService")
+            local TS = game:GetService("TeleportService")
             local origT
-            origT = hookfunction(TeleportService.Teleport, function(self, ...)
-                if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L5] TeleportService:Teleport blocked"); return end
+            origT = hookfunction(TS.Teleport, function(self, ...)
+                if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L5] Teleport blocked"); return end
                 return origT(self, ...)
             end)
-            AK.layers = AK.layers + 1; print("[🛡️ L5] TeleportService:Teleport hooked")
+            AK.layers = AK.layers + 1
         end
     end)
     pcall(function()
-        connections["ak_player_removing"] = plrs.PlayerRemoving:Connect(function(p)
-            if AK.active and p == lp then
-                AK.blocked = AK.blocked + 1
-                warn("[🛡️ L6] CRITICAL: PlayerRemoving для НАС!")
-            end
+        connections["ak_pr"] = plrs.PlayerRemoving:Connect(function(p)
+            if AK.active and p == lp then AK.blocked = AK.blocked + 1; warn("[🛡️ L6] CRIT: PlayerRemoving for us!") end
         end)
-        AK.layers = AK.layers + 1; print("[🛡️ L6] PlayerRemoving watcher OK")
+        AK.layers = AK.layers + 1
     end)
     pcall(function()
-        connections["ak_gui_watch"] = task.spawn(function()
+        connections["ak_gui"] = task.spawn(function()
             while AK.installed do
                 if AK.active then
                     pcall(function()
@@ -550,18 +915,15 @@ function AK:Install()
                         for _, g in ipairs(pg:GetDescendants()) do
                             if g:IsA("Frame") and g.Size == UDim2.new(1,0,1,0) and g.BackgroundTransparency < 0.4 then
                                 local nm = safeLower(g.Name)
-                                if nm:find("kick") or nm:find("ban") or nm:find("block") or nm:find("overlay") then
-                                    pcall(function() g:Destroy() end)
-                                    AK.blocked = AK.blocked + 1
-                                    warn("[🛡️ L7] Fullscreen overlay killed:", nm)
+                                if nm:find("kick") or nm:find("ban") or nm:find("overlay") then
+                                    pcall(function() g:Destroy() end); AK.blocked = AK.blocked + 1
                                 end
                             end
                             if g:IsA("TextLabel") then
                                 local t = safeLower(g.Text or "")
-                                if t:find("kicked") or t:find("banned") or t:find("disconnect") or t:find("detected") then
+                                if t:find("kicked") or t:find("banned") or t:find("detected") then
                                     local sg = g:FindFirstAncestorOfClass("ScreenGui")
-                                    if sg then pcall(function() sg:Destroy() end); warn("[🛡️ L7] Kick-text GUI destroyed") end
-                                    AK.blocked = AK.blocked + 1
+                                    if sg then pcall(function() sg:Destroy() end); AK.blocked = AK.blocked + 1 end
                                 end
                             end
                         end
@@ -570,26 +932,24 @@ function AK:Install()
                 task.wait(0.3)
             end
         end)
-        AK.layers = AK.layers + 1; print("[🛡️ L7] PlayerGui overlay killer OK")
+        AK.layers = AK.layers + 1
     end)
     pcall(function()
         local Lighting = game:GetService("Lighting")
-        connections["ak_blur_watch"] = Lighting.DescendantAdded:Connect(function(obj)
+        connections["ak_blur"] = Lighting.DescendantAdded:Connect(function(obj)
             if AK.active and (obj:IsA("BlurEffect") or obj:IsA("ColorCorrectionEffect")) then
                 task.wait(0.1)
                 local nm = safeLower(obj.Name)
-                if nm:find("kick") or nm:find("ban") or nm:find("dark") or nm:find("dim") then
-                    pcall(function() obj:Destroy() end)
-                    warn("[🛡️ L8] Blur/dim effect destroyed:", obj.Name)
-                    AK.blocked = AK.blocked + 1
+                if nm:find("kick") or nm:find("ban") or nm:find("dim") then
+                    pcall(function() obj:Destroy() end); AK.blocked = AK.blocked + 1
                 end
             end
         end)
-        AK.layers = AK.layers + 1; print("[🛡️ L8] Lighting blur/dim watcher OK")
+        AK.layers = AK.layers + 1
     end)
     pcall(function()
         local StarterGui = game:GetService("StarterGui")
-        connections["ak_topbar"] = task.spawn(function()
+        connections["ak_top"] = task.spawn(function()
             while AK.installed do
                 if AK.active then
                     pcall(function()
@@ -600,27 +960,26 @@ function AK:Install()
                 task.wait(1)
             end
         end)
-        AK.layers = AK.layers + 1; print("[🛡️ L9] Topbar/CoreGui forced ON")
+        AK.layers = AK.layers + 1
     end)
     pcall(function()
         local sc = game:GetService("ScriptContext")
-        connections["ak_script_error"] = sc.Error:Connect(function(msg, trace, script)
+        connections["ak_err"] = sc.Error:Connect(function(msg)
             if AK.active and msg then
                 local lm = tostring(msg):lower()
                 if lm:find("kick") or lm:find("ban") or lm:find("disconnect") then
-                    warn("[🛡️ L10] Script error caught: " .. msg:sub(1,60))
-                    AK.blocked = AK.blocked + 1
+                    warn("[🛡️ L10] Script error: " .. msg:sub(1,50)); AK.blocked = AK.blocked + 1
                 end
             end
         end)
-        AK.layers = AK.layers + 1; print("[🛡️ L10] ScriptContext.Error watcher OK")
+        AK.layers = AK.layers + 1
     end)
-    print("[🛡️ ANTI-KICK v1] Установлено " .. AK.layers .. " слоёв защиты!")
+    print("[🛡️ AK] Установлено " .. AK.layers .. " слоёв")
 end
 function AK:Toggle(state)
     self.active = state
     if state and not self.installed then self:Install() end
-    print("[🛡️ AK] " .. (state and ("🟢 АКТИВЕН — " .. self.layers .. " слоёв | заблокировано: " .. self.blocked) or "🔴 OFF"))
+    print("[🛡️ AK] " .. (state and "🟢 ON" or "🔴 OFF"))
 end
 local function newInst(class, props, parent)
     local o = Instance.new(class)
@@ -629,12 +988,10 @@ local function newInst(class, props, parent)
     return o
 end
 local function makeCorner(p, r)
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, r or 6)
-    c.Parent = p
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 6); c.Parent = p
 end
 local function stealthName()
-    local list = { "PlayerListGui", "ChatModule", "SystemUI", "TopBarUI", "MessageBox", "CoreGuiExt", "PromptModule", "InputHandler" }
+    local list = { "PlayerListGui", "ChatModule", "SystemUI", "TopBarUI", "MessageBox", "CoreGuiExt", "PromptModule", "InputHandler", "TextChatContainer" }
     return list[math.random(1, #list)] .. "_" .. tostring(math.random(1000, 9999))
 end
 local sg = newInst("ScreenGui", { Name = stealthName(), ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 999999, Enabled = true })
@@ -642,10 +999,10 @@ local parented = false
 pcall(function() if gethui then sg.Parent = gethui(); parented = true end end)
 if not parented then pcall(function() sg.Parent = game:GetService("CoreGui"); parented = (sg.Parent ~= nil) end) end
 if not parented then pcall(function() sg.Parent = lp:WaitForChild("PlayerGui", 5); parented = true end) end
-if not parented then warn("[v1] ❌ GUI PARENT FAIL"); return end
-warn("[v1] ✅ GUI parent: " .. tostring(sg.Parent))
+if not parented then warn("[v2] ❌ GUI parent fail"); return end
+warn("[v2] ✅ GUI parent: " .. tostring(sg.Parent) .. " | Name: " .. sg.Name)
 local mf = newInst("Frame", {
-    Size = UDim2.new(0, 500, 0, 560),
+    Size = UDim2.new(0, 520, 0, 600),
     Position = UDim2.new(0, 20, 0, 60),
     BackgroundColor3 = Color3.fromRGB(18, 18, 24),
     BorderSizePixel = 0, Active = true, Draggable = true, Visible = true, ZIndex = 10
@@ -654,7 +1011,7 @@ makeCorner(mf, 10)
 newInst("UIStroke", { Color = Color3.fromRGB(80, 80, 100), Thickness = 2, Transparency = 0.3 }, mf)
 local title = newInst("TextLabel", {
     Size = UDim2.new(1, -70, 0, 32),
-    Text = "  🔬 GAME ANALYZER v1.0",
+    Text = "  🔬 GAME ANALYZER v2.0",
     TextColor3 = Color3.fromRGB(150, 220, 255),
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -680,75 +1037,66 @@ local minimized = false
 minBtn.MouseButton1Click:Connect(function()
     minimized = not minimized
     if minimized then
-        mf:TweenSize(UDim2.new(0,500,0,34), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true)
-        minBtn.Text = "+"
-        for _,v in ipairs(mf:GetChildren()) do
-            if v:IsA("GuiObject") and v~=title and v~=minBtn and v~=unloadBtn then v.Visible=false end
-        end
+        mf:TweenSize(UDim2.new(0,520,0,34), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true); minBtn.Text = "+"
+        for _, v in ipairs(mf:GetChildren()) do if v:IsA("GuiObject") and v~=title and v~=minBtn and v~=unloadBtn then v.Visible=false end end
     else
-        mf:TweenSize(UDim2.new(0,500,0,560), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true)
-        minBtn.Text = "-"
-        for _,v in ipairs(mf:GetChildren()) do
-            if v:IsA("GuiObject") and v~=title and v~=minBtn and v~=unloadBtn then v.Visible=true end
-        end
+        mf:TweenSize(UDim2.new(0,520,0,600), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true); minBtn.Text = "-"
+        for _, v in ipairs(mf:GetChildren()) do if v:IsA("GuiObject") and v~=title and v~=minBtn and v~=unloadBtn then v.Visible=true end end
     end
 end)
-local actF = newInst("Frame", {
-    Size = UDim2.new(1, -12, 0, 42), Position = UDim2.new(0, 6, 0, 38),
-    BackgroundTransparency = 1, ZIndex = 11
-}, mf)
+local actF = newInst("Frame", { Size = UDim2.new(1, -12, 0, 42), Position = UDim2.new(0, 6, 0, 38), BackgroundTransparency = 1, ZIndex = 11 }, mf)
 local scanBtn = newInst("TextButton", {
-    Size = UDim2.new(0.48, -3, 1, 0), Position = UDim2.new(0, 0, 0, 0),
-    Text = "🔄 FULL SCAN", Font = Enum.Font.GothamBold, TextSize = 13,
+    Size = UDim2.new(0.32, -3, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+    Text = "🔄 SCAN", Font = Enum.Font.GothamBold, TextSize = 13,
     TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(0, 140, 180),
     BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(scanBtn, 6)
+local exportBtn = newInst("TextButton", {
+    Size = UDim2.new(0.32, -3, 1, 0), Position = UDim2.new(0.34, 0, 0, 0),
+    Text = "📋 EXPORT", Font = Enum.Font.GothamBold, TextSize = 13,
+    TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(0, 150, 100),
+    BorderSizePixel = 0, ZIndex = 12
+}, actF)
+makeCorner(exportBtn, 6)
 local execAllBtn = newInst("TextButton", {
-    Size = UDim2.new(0.48, -3, 1, 0), Position = UDim2.new(0.52, 0, 0, 0),
+    Size = UDim2.new(0.32, -3, 1, 0), Position = UDim2.new(0.68, 0, 0, 0),
     Text = "🔥 EXEC ALL", Font = Enum.Font.GothamBold, TextSize = 13,
     TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(180, 40, 40),
     BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(execAllBtn, 6)
-local tabBar = newInst("Frame", {
-    Size = UDim2.new(1, -12, 0, 28), Position = UDim2.new(0, 6, 0, 84),
-    BackgroundTransparency = 1, ZIndex = 11
-}, mf)
+local tabBar = newInst("Frame", { Size = UDim2.new(1, -12, 0, 26), Position = UDim2.new(0, 6, 0, 84), BackgroundTransparency = 1, ZIndex = 11 }, mf)
 local tabPanels = {}
 local curTab = "exploits"
 local tabButtons = {}
 local function makeTabBtn(id, label, x, w)
     local b = newInst("TextButton", {
-        Size = UDim2.new(w, -3, 1, 0), Position = UDim2.new(x, 0, 0, 0),
-        Text = label, Font = Enum.Font.GothamBold, TextSize = 11,
+        Size = UDim2.new(w, -2, 1, 0), Position = UDim2.new(x, 0, 0, 0),
+        Text = label, Font = Enum.Font.GothamBold, TextSize = 10,
         TextColor3 = Color3.fromRGB(255,255,255),
         BackgroundColor3 = (id == curTab) and Color3.fromRGB(60, 100, 140) or Color3.fromRGB(45, 45, 55),
         BorderSizePixel = 0, ZIndex = 12
     }, tabBar)
-    makeCorner(b, 5)
+    makeCorner(b, 4)
     tabButtons[id] = b
     b.MouseButton1Click:Connect(function()
         curTab = id
         for pid, p in pairs(tabPanels) do p.Visible = (pid == id) end
-        for tid, tb in pairs(tabButtons) do
-            tb.BackgroundColor3 = (tid == id) and Color3.fromRGB(60, 100, 140) or Color3.fromRGB(45, 45, 55)
-        end
+        for tid, tb in pairs(tabButtons) do tb.BackgroundColor3 = (tid == id) and Color3.fromRGB(60, 100, 140) or Color3.fromRGB(45, 45, 55) end
     end)
 end
-makeTabBtn("exploits", "🚪 Эксплоиты", 0, 0.28)
-makeTabBtn("workspace", "📊 Workspace", 0.28, 0.28)
-makeTabBtn("analyzer", "🔬 Анализ", 0.56, 0.22)
-makeTabBtn("settings", "⚙️ Настр", 0.78, 0.22)
-local panelArea = newInst("Frame", {
-    Size = UDim2.new(1, -12, 1, -122), Position = UDim2.new(0, 6, 0, 116),
-    BackgroundTransparency = 1, ZIndex = 11
-}, mf)
+makeTabBtn("exploits", "🚪 Экспл", 0, 0.22)
+makeTabBtn("workspace", "📊 Дерево", 0.22, 0.22)
+makeTabBtn("analyzer", "🔬 Анлз", 0.44, 0.18)
+makeTabBtn("spy", "🕵️ Spy", 0.62, 0.16)
+makeTabBtn("settings", "⚙️", 0.78, 0.22)
+local panelArea = newInst("Frame", { Size = UDim2.new(1, -12, 1, -122), Position = UDim2.new(0, 6, 0, 114), BackgroundTransparency = 1, ZIndex = 11 }, mf)
 local expPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = true, ZIndex = 11 }, panelArea)
 tabPanels.exploits = expPanel
 local expInfo = newInst("TextLabel", {
     Size = UDim2.new(1, -4, 0, 18), BackgroundTransparency = 1,
-    Text = "  🚪 Найдено: 0 эксплоитов | Тапни для execute",
+    Text = "  🚪 Найдено: 0 | Тап=execute  🎯=copy info  📋=copy path",
     Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(200, 220, 255),
     TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 12
 }, expPanel)
@@ -762,14 +1110,13 @@ local function refreshExploits()
     for _, c in ipairs(expScroll:GetChildren()) do
         if c:IsA("TextButton") or c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
     end
-    expInfo.Text = "  🚪 Найдено: " .. #DeepData.ExploitList .. " эксплоитов | Тапни для execute"
+    expInfo.Text = "  🚪 Найдено: " .. #DeepData.ExploitList .. " | Тап=exec  🎯=info  📋=path"
     if #DeepData.ExploitList == 0 then
-        local lbl = newInst("TextLabel", {
+        newInst("TextLabel", {
             Size = UDim2.new(1, -8, 0, 40), BackgroundTransparency = 1,
-            Text = "  Нажми FULL SCAN чтобы найти эксплоиты",
+            Text = "  Нажми SCAN — найдёт эксплойты",
             Font = Enum.Font.SourceSans, TextSize = 11,
-            TextColor3 = Color3.fromRGB(180,180,180), TextXAlignment = Enum.TextXAlignment.Left,
-            TextWrapped = true, ZIndex = 12
+            TextColor3 = Color3.fromRGB(180,180,180), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 12
         }, expScroll)
         return
     end
@@ -778,39 +1125,62 @@ local function refreshExploits()
         if exp.risk == "CRITICAL" then col = Color3.fromRGB(180,40,40)
         elseif exp.risk == "HIGH" then col = Color3.fromRGB(180,120,40)
         elseif exp.risk == "MEDIUM" then col = Color3.fromRGB(150,150,40) end
-        local btn = newInst("TextButton", {
-            Size = UDim2.new(1, -8, 0, 42), Text = "",
-            BackgroundColor3 = col, AutoButtonColor = true,
+        local container = newInst("Frame", {
+            Size = UDim2.new(1, -8, 0, 48), BackgroundColor3 = col,
             BorderSizePixel = 0, LayoutOrder = i, ZIndex = 12
         }, expScroll)
-        makeCorner(btn, 4)
-        local effectLbl = newInst("TextLabel", {
-            Size = UDim2.new(1, -8, 0, 16), Position = UDim2.new(0, 5, 0, 2),
-            Text = exp.effectIcon .. " " .. exp.effect .. "  [" .. exp.risk .. "]",
+        makeCorner(container, 4)
+        local mainBtn = newInst("TextButton", {
+            Size = UDim2.new(1, -68, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+            Text = "", BackgroundTransparency = 1, AutoButtonColor = true, ZIndex = 13
+        }, container)
+        newInst("TextLabel", {
+            Size = UDim2.new(1, -6, 0, 16), Position = UDim2.new(0, 5, 0, 2),
+            Text = exp.effectIcon .. " " .. exp.effect .. "  [" .. exp.risk .. "]  score=" .. exp.score,
             Font = Enum.Font.GothamBold, TextSize = 11,
             TextColor3 = Color3.fromRGB(255,255,255), BackgroundTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13
-        }, btn)
-        local nameLbl = newInst("TextLabel", {
-            Size = UDim2.new(1, -8, 0, 12), Position = UDim2.new(0, 5, 0, 17),
+            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 14
+        }, mainBtn)
+        newInst("TextLabel", {
+            Size = UDim2.new(1, -6, 0, 12), Position = UDim2.new(0, 5, 0, 18),
             Text = exp.name .. "  (" .. exp.class .. ")",
             Font = Enum.Font.SourceSans, TextSize = 10,
             TextColor3 = Color3.fromRGB(230,230,240), BackgroundTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 13
-        }, btn)
-        local pathLbl = newInst("TextLabel", {
-            Size = UDim2.new(1, -8, 0, 12), Position = UDim2.new(0, 5, 0, 28),
-            Text = exp.path:sub(1, 60),
+            TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 14
+        }, mainBtn)
+        newInst("TextLabel", {
+            Size = UDim2.new(1, -6, 0, 12), Position = UDim2.new(0, 5, 0, 32),
+            Text = exp.path:sub(1, 55),
             Font = Enum.Font.SourceSans, TextSize = 9,
             TextColor3 = Color3.fromRGB(180,200,220), BackgroundTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 13
-        }, btn)
-        btn.MouseButton1Click:Connect(function()
-            local origColor = btn.BackgroundColor3
-            btn.BackgroundColor3 = Color3.fromRGB(255,200,100)
-            executeExploit(exp)
-            task.wait(0.5)
-            btn.BackgroundColor3 = origColor
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 14
+        }, mainBtn)
+        mainBtn.MouseButton1Click:Connect(function() executeExploit(exp) end)
+        local infoBtn = newInst("TextButton", {
+            Size = UDim2.new(0, 30, 1, -4), Position = UDim2.new(1, -64, 0, 2),
+            Text = "🎯", Font = Enum.Font.GothamBold, TextSize = 14,
+            TextColor3 = Color3.fromRGB(255,255,255),
+            BackgroundColor3 = Color3.fromRGB(40, 100, 140), BorderSizePixel = 0, ZIndex = 14
+        }, container)
+        makeCorner(infoBtn, 4)
+        infoBtn.MouseButton1Click:Connect(function()
+            local info = exploitToReadableInfo(exp)
+            copyToClipboard(info)
+            infoBtn.Text = "✅"
+            _origPrint("\n" .. info)
+            task.wait(1); infoBtn.Text = "🎯"
+        end)
+        local pathBtn = newInst("TextButton", {
+            Size = UDim2.new(0, 30, 1, -4), Position = UDim2.new(1, -32, 0, 2),
+            Text = "📋", Font = Enum.Font.GothamBold, TextSize = 14,
+            TextColor3 = Color3.fromRGB(255,255,255),
+            BackgroundColor3 = Color3.fromRGB(40, 120, 80), BorderSizePixel = 0, ZIndex = 14
+        }, container)
+        makeCorner(pathBtn, 4)
+        pathBtn.MouseButton1Click:Connect(function()
+            copyToClipboard(exp.path)
+            pathBtn.Text = "✅"
+            task.wait(1); pathBtn.Text = "📋"
         end)
     end
 end
@@ -826,17 +1196,26 @@ local expandedNodes = {}
 local function iconFor(cls)
     if cls == "Folder" then return "📁"
     elseif cls == "Model" then return "🎯"
-    elseif cls == "Part" or cls == "BasePart" or cls == "MeshPart" then return "🧊"
-    elseif cls == "Script" or cls == "LocalScript" then return "📜"
+    elseif cls == "Part" or cls == "BasePart" or cls == "MeshPart" or cls == "UnionOperation" then return "🧊"
+    elseif cls == "Script" then return "📜"
+    elseif cls == "LocalScript" then return "📝"
     elseif cls == "ModuleScript" then return "📘"
     elseif cls == "RemoteEvent" then return "📡"
     elseif cls == "RemoteFunction" then return "📶"
     elseif cls == "BindableEvent" then return "🔔"
+    elseif cls == "BindableFunction" then return "🎯"
     elseif cls == "Tool" then return "🗡️"
     elseif cls == "Humanoid" then return "🚶"
-    elseif cls == "NumberValue" or cls == "IntValue" or cls == "StringValue" or cls == "BoolValue" then return "🔢"
+    elseif cls == "Configuration" then return "⚙️"
+    elseif cls == "NumberValue" or cls == "IntValue" or cls == "StringValue" or cls == "BoolValue" or cls == "ObjectValue" then return "🔢"
     elseif cls == "ClickDetector" then return "🖱️"
     elseif cls == "ProximityPrompt" then return "🎬"
+    elseif cls == "Attachment" then return "🔗"
+    elseif cls == "Motor6D" or cls == "Weld" or cls == "WeldConstraint" then return "🔗"
+    elseif cls == "SpecialMesh" or cls == "BlockMesh" then return "🎭"
+    elseif cls == "Sound" then return "🔊"
+    elseif cls == "ParticleEmitter" then return "✨"
+    elseif cls == "Beam" then return "🌈"
     else return "🔷" end
 end
 local function refreshWorkspaceTree()
@@ -846,22 +1225,27 @@ local function refreshWorkspaceTree()
     local function addNode(obj, depth, layoutOrder)
         if not obj then return layoutOrder end
         local prefix = string.rep("  ", depth)
-        local expandable = #obj:GetChildren() > 0
+        local children = obj:GetChildren()
+        local expandable = #children > 0
         local isExpanded = expandedNodes[obj]
         local arrow = expandable and (isExpanded and "▼" or "▶") or " "
         local icon = iconFor(obj.ClassName)
-        local row = newInst("TextButton", {
-            Size = UDim2.new(1, -6, 0, 20), Text = "",
+        local container = newInst("Frame", {
+            Size = UDim2.new(1, -6, 0, 20),
             BackgroundColor3 = Color3.fromRGB(30, 30, 40),
             BorderSizePixel = 0, LayoutOrder = layoutOrder, ZIndex = 12
         }, wsScroll)
-        makeCorner(row, 3)
-        local lbl = newInst("TextLabel", {
+        makeCorner(container, 3)
+        local row = newInst("TextButton", {
+            Size = UDim2.new(1, -32, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+            Text = "", BackgroundTransparency = 1, AutoButtonColor = false, ZIndex = 13
+        }, container)
+        newInst("TextLabel", {
             Size = UDim2.new(1, -8, 1, 0), Position = UDim2.new(0, 4, 0, 0),
             Text = prefix .. arrow .. " " .. icon .. " " .. obj.Name .. " [" .. obj.ClassName .. "]",
             Font = Enum.Font.SourceSans, TextSize = 10, TextColor3 = Color3.fromRGB(230, 230, 240),
             BackgroundTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 13
+            TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 14
         }, row)
         layoutOrder = layoutOrder + 1
         row.MouseButton1Click:Connect(function()
@@ -869,14 +1253,25 @@ local function refreshWorkspaceTree()
                 expandedNodes[obj] = not expandedNodes[obj]
                 refreshWorkspaceTree()
             else
+                copyToClipboard(obj:GetFullName())
                 warn("[📊] " .. obj:GetFullName())
-                if _setclipboard then pcall(function() _setclipboard(obj:GetFullName()) end) end
             end
         end)
+        local copyBtn = newInst("TextButton", {
+            Size = UDim2.new(0, 28, 1, -2), Position = UDim2.new(1, -30, 0, 1),
+            Text = "📋", Font = Enum.Font.GothamBold, TextSize = 10,
+            TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(50, 80, 100),
+            BorderSizePixel = 0, ZIndex = 14
+        }, container)
+        makeCorner(copyBtn, 3)
+        copyBtn.MouseButton1Click:Connect(function()
+            copyToClipboard(obj:GetFullName())
+            copyBtn.Text = "✅"; task.wait(1); copyBtn.Text = "📋"
+        end)
         if expandable and isExpanded then
-            for _, child in ipairs(obj:GetChildren()) do
+            for _, child in ipairs(children) do
                 layoutOrder = addNode(child, depth + 1, layoutOrder)
-                if layoutOrder > 150 then return layoutOrder end
+                if layoutOrder > 250 then return layoutOrder end
             end
         end
         return layoutOrder
@@ -884,8 +1279,10 @@ local function refreshWorkspaceTree()
     local lo = 1
     lo = addNode(ws, 0, lo)
     lo = addNode(rep, 0, lo)
-    lo = addNode(game:GetService("StarterPack"), 0, lo)
-    lo = addNode(game:GetService("StarterGui"), 0, lo)
+    pcall(function() lo = addNode(game:GetService("StarterPack"), 0, lo) end)
+    pcall(function() lo = addNode(game:GetService("StarterGui"), 0, lo) end)
+    pcall(function() lo = addNode(game:GetService("StarterPlayer"), 0, lo) end)
+    pcall(function() lo = addNode(game:GetService("ReplicatedFirst"), 0, lo) end)
 end
 local anaPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false, ZIndex = 11 }, panelArea)
 tabPanels.analyzer = anaPanel
@@ -899,7 +1296,7 @@ local function addAnaLine(text, color, order)
     return newInst("TextLabel", {
         Size = UDim2.new(1, -8, 0, 18), BackgroundColor3 = Color3.fromRGB(30, 30, 40),
         BorderSizePixel = 0, Text = "  " .. text,
-        Font = Enum.Font.SourceSansBold, TextSize = 12,
+        Font = Enum.Font.SourceSansBold, TextSize = 11,
         TextColor3 = color or Color3.fromRGB(230, 230, 230),
         TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order or 0, ZIndex = 12
     }, anaScroll)
@@ -910,54 +1307,136 @@ local function refreshAnalyzer()
     end
     local o = 0
     local function ln(t, col) o = o + 1; addAnaLine(t, col, o) end
-    ln("═══ SCAN #" .. DeepData.ScanCount .. " ═══", Color3.fromRGB(150, 255, 200))
-    ln(string.format("⏱️ Scan time: %.1fs", DeepData.ScanTime), Color3.fromRGB(200, 200, 200))
-    ln(string.format("🎭 AntiCheat: %s", DeepData.AnticheatType), Color3.fromRGB(255, 200, 100))
+    ln("═══ SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s) ═══", Color3.fromRGB(150, 255, 200))
+    ln("🎮 " .. tostring(DeepData.GameName):sub(1,40), Color3.fromRGB(200, 220, 255))
+    ln("🎭 AC: " .. DeepData.AnticheatType, Color3.fromRGB(255, 200, 100))
     ln("", nil)
     ln("═══ EXPLOITS BY EFFECT ═══", Color3.fromRGB(100, 200, 255))
-    ln(string.format("💰 Money: %d", #DeepData.MoneyRemotes), Color3.fromRGB(255, 220, 100))
-    ln(string.format("👑 Admin: %d", #DeepData.AdminRemotes), Color3.fromRGB(255, 200, 100))
-    ln(string.format("🛡️ God: %d", #DeepData.GodRemotes), Color3.fromRGB(100, 200, 255))
-    ln(string.format("🚨 Execute: %d", #DeepData.ExecuteRemotes), Color3.fromRGB(255, 100, 100))
-    ln(string.format("📍 Teleport: %d", #DeepData.TeleportRemotes), Color3.fromRGB(150, 200, 255))
-    ln(string.format("💀 Kill: %d", #DeepData.KillRemotes), Color3.fromRGB(255, 100, 100))
-    ln(string.format("💚 Heal: %d", #DeepData.HealRemotes), Color3.fromRGB(100, 255, 150))
-    ln(string.format("✨ Spawn: %d", #DeepData.SpawnRemotes), Color3.fromRGB(200, 200, 255))
-    ln(string.format("💬 Chat: %d", #DeepData.ChatRemotes), Color3.fromRGB(180, 220, 180))
-    ln(string.format("💨 Speed: %d", #DeepData.SpeedRemotes), Color3.fromRGB(200, 255, 200))
-    ln(string.format("👻 Noclip: %d", #DeepData.NoclipRemotes), Color3.fromRGB(180, 180, 200))
-    ln(string.format("🗑️ Delete: %d", #DeepData.DeleteRemotes), Color3.fromRGB(200, 100, 100))
+    ln("💰 Money: " .. #DeepData.MoneyRemotes .. "  |  👑 Admin: " .. #DeepData.AdminRemotes, Color3.fromRGB(255, 220, 100))
+    ln("🛡️ God: " .. #DeepData.GodRemotes .. "  |  🚨 Exec: " .. #DeepData.ExecuteRemotes, Color3.fromRGB(255, 150, 100))
+    ln("📍 TP: " .. #DeepData.TeleportRemotes .. "  |  💀 Kill: " .. #DeepData.KillRemotes, Color3.fromRGB(200, 150, 200))
+    ln("💚 Heal: " .. #DeepData.HealRemotes .. "  |  ✨ Spawn: " .. #DeepData.SpawnRemotes, Color3.fromRGB(150, 200, 150))
+    ln("🛒 Shop: " .. #DeepData.ShopRemotes .. "  |  🎰 Roll: " .. #DeepData.RollRemotes, Color3.fromRGB(200, 200, 100))
+    ln("⬆️ Upgrade: " .. #DeepData.UpgradeRemotes .. "  |  🎁 Claim: " .. #DeepData.ClaimRemotes, Color3.fromRGB(180, 220, 150))
+    ln("🐾 Pet: " .. #DeepData.PetRemotes .. "  |  📜 Quest: " .. #DeepData.QuestRemotes, Color3.fromRGB(200, 180, 220))
+    ln("🚗 Vehicle: " .. #DeepData.VehicleRemotes .. "  |  🏗️ Build: " .. #DeepData.BuildRemotes, Color3.fromRGB(150, 200, 200))
+    ln("💬 Chat: " .. #DeepData.ChatRemotes .. "  |  💨 Speed: " .. #DeepData.SpeedRemotes, Color3.fromRGB(180, 220, 180))
+    ln("👻 Noclip: " .. #DeepData.NoclipRemotes .. "  |  🗑️ Delete: " .. #DeepData.DeleteRemotes, Color3.fromRGB(200, 100, 100))
     ln("", nil)
-    ln("═══ COMBAT REMOTES ═══", Color3.fromRGB(100, 200, 255))
-    ln(string.format("⚔️ Combat: %d", #DeepData.CombatRemotes), Color3.fromRGB(255, 180, 100))
-    ln(string.format("⚔️ Damage: %d", #DeepData.DamageRemotes), Color3.fromRGB(255, 150, 100))
-    ln(string.format("👹 Boss: %d", #DeepData.BossRemotes), Color3.fromRGB(200, 100, 200))
-    ln(string.format("✨ Ability: %d", #DeepData.AbilityRemotes), Color3.fromRGB(150, 200, 255))
-    ln(string.format("🗡️ Weapon: %d", #DeepData.WeaponRemotes), Color3.fromRGB(200, 200, 150))
-    ln(string.format("🎯 High-Value: %d", #DeepData.HighValueRemotes), Color3.fromRGB(255, 220, 100))
-    ln(string.format("❓ Unknown: %d", #DeepData.UnknownRemotes), Color3.fromRGB(150, 150, 150))
+    ln("═══ COMBAT ═══", Color3.fromRGB(100, 200, 255))
+    ln("⚔️ Combat: " .. #DeepData.CombatRemotes .. "  |  Damage: " .. #DeepData.DamageRemotes, Color3.fromRGB(255, 180, 100))
+    ln("👹 Boss: " .. #DeepData.BossRemotes .. "  |  Weapon: " .. #DeepData.WeaponRemotes, Color3.fromRGB(200, 150, 200))
+    ln("✨ Ability: " .. #DeepData.AbilityRemotes .. "  |  ❓ Unknown: " .. #DeepData.UnknownRemotes, Color3.fromRGB(150, 200, 255))
     ln("", nil)
-    ln("═══ DEEP SCAN ═══", Color3.fromRGB(200, 150, 255))
-    ln(string.format("🔬 GC-Remotes: %d", #DeepData.GCRemotesFound), Color3.fromRGB(200, 150, 255))
-    ln(string.format("🔬 Upvalue-Remotes: %d", #DeepData.UpvalueRemotes), Color3.fromRGB(200, 150, 255))
-    ln(string.format("🔬 GC-Functions: %d", #DeepData.GCFunctionsFound), Color3.fromRGB(200, 150, 255))
+    ln("═══ DEEP ACCESS ═══", Color3.fromRGB(200, 150, 255))
+    ln("🔬 GC-Rem: " .. #DeepData.GCRemotesFound .. "  Upv: " .. #DeepData.UpvalueRemotes, Color3.fromRGB(200, 150, 255))
+    ln("🔬 GC-Fn: " .. #DeepData.GCFunctionsFound .. "  Const: " .. #DeepData.ConstantsFound, Color3.fromRGB(200, 150, 255))
+    ln("🕳️ NilParent: " .. #DeepData.NilParentObjects, Color3.fromRGB(255, 100, 200))
+    ln("🔒 Protected: " .. #DeepData.ProtectedInstances, Color3.fromRGB(255, 150, 200))
+    ln("🌫️ Obfuscated: " .. #DeepData.ObfuscatedRemotes .. "  Internal: " .. #DeepData.InternalRemotes, Color3.fromRGB(200, 200, 255))
+    local dc = 0
+    for _ in pairs(DeepData.DecompiledScripts) do dc = dc + 1 end
+    ln("🕵️ Decompiled: " .. dc, Color3.fromRGB(100, 255, 200))
     ln("", nil)
     ln("═══ ANTICHEAT ═══", Color3.fromRGB(255, 100, 100))
-    ln(string.format("🛡️ AC-Remotes: %d", #DeepData.AnticheatRemotes), Color3.fromRGB(255, 100, 100))
-    ln(string.format("⚠️ AC-Scripts: %d", #DeepData.AnticheatScripts), Color3.fromRGB(255, 100, 100))
-    ln(string.format("🚨 Sus-Scripts: %d", #DeepData.SuspiciousScripts), Color3.fromRGB(255, 150, 100))
+    ln("🛡️ AC-Rem: " .. #DeepData.AnticheatRemotes .. "  AC-Scr: " .. #DeepData.AnticheatScripts, Color3.fromRGB(255, 100, 100))
+    ln("🚨 Sus-Scripts: " .. #DeepData.SuspiciousScripts, Color3.fromRGB(255, 150, 100))
     ln("", nil)
     ln("═══ WORLD ═══", Color3.fromRGB(150, 255, 200))
-    ln(string.format("👹 Boss-Models: %d", #DeepData.BossModels), Color3.fromRGB(200, 100, 200))
-    ln(string.format("🚶 NPCs: %d", #DeepData.NPCs), Color3.fromRGB(150, 200, 150))
-    ln(string.format("🗡️ Tools: %d", #DeepData.Tools), Color3.fromRGB(150, 200, 150))
-    ln(string.format("💀 Bindables: %d", #DeepData.Bindables), Color3.fromRGB(180, 150, 150))
-    ln(string.format("🎬 CombatPrompts: %d", #DeepData.CombatPrompts), Color3.fromRGB(150, 200, 200))
-    ln(string.format("🖱️ ClickDetectors: %d", #DeepData.ClickDetectors), Color3.fromRGB(150, 200, 200))
+    ln("👹 Bosses: " .. #DeepData.BossModels .. "  🚶 NPCs: " .. #DeepData.NPCs, Color3.fromRGB(200, 100, 200))
+    ln("🗡️ Tools: " .. #DeepData.Tools .. "  💀 Bindables: " .. #DeepData.Bindables, Color3.fromRGB(150, 200, 150))
+    ln("🎬 Prompts: " .. #DeepData.CombatPrompts .. "  🖱️ Clicks: " .. #DeepData.ClickDetectors, Color3.fromRGB(150, 200, 200))
+    ln("👥 Hidden Models: " .. #DeepData.HiddenModels, Color3.fromRGB(255, 200, 100))
+end
+local spyPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false, ZIndex = 11 }, panelArea)
+tabPanels.spy = spyPanel
+local spyHeader = newInst("Frame", {
+    Size = UDim2.new(1, -4, 0, 32), BackgroundColor3 = Color3.fromRGB(30,30,40),
+    BorderSizePixel = 0, ZIndex = 12
+}, spyPanel)
+makeCorner(spyHeader, 4)
+local spyToggle = newInst("TextButton", {
+    Size = UDim2.new(0.5, -3, 0, 26), Position = UDim2.new(0, 3, 0, 3),
+    Text = "🕵️ Spy: OFF", Font = Enum.Font.GothamBold, TextSize = 11,
+    TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(80, 60, 100),
+    BorderSizePixel = 0, ZIndex = 13
+}, spyHeader)
+makeCorner(spyToggle, 4)
+local spyClearBtn = newInst("TextButton", {
+    Size = UDim2.new(0.5, -3, 0, 26), Position = UDim2.new(0.5, 0, 0, 3),
+    Text = "🗑️ Clear log", Font = Enum.Font.GothamBold, TextSize = 11,
+    TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(100, 60, 60),
+    BorderSizePixel = 0, ZIndex = 13
+}, spyHeader)
+makeCorner(spyClearBtn, 4)
+local spyScroll = newInst("ScrollingFrame", {
+    Size = UDim2.new(1, -4, 1, -36), Position = UDim2.new(0, 0, 0, 36),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
+    AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(0,0,0,0), ZIndex = 11
+}, spyPanel)
+newInst("UIListLayout", { Padding = UDim.new(0, 2) }, spyScroll)
+spyToggle.MouseButton1Click:Connect(function()
+    Settings.RemoteSpy = not Settings.RemoteSpy
+    RemoteSpy:Toggle(Settings.RemoteSpy)
+    spyToggle.Text = "🕵️ Spy: " .. (Settings.RemoteSpy and "ON ✅" or "OFF")
+    spyToggle.BackgroundColor3 = Settings.RemoteSpy and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(80, 60, 100)
+end)
+spyClearBtn.MouseButton1Click:Connect(function()
+    DeepData.SpiedCalls = {}
+    DeepData.CallSignatures = {}
+end)
+local function refreshSpy()
+    for _, c in ipairs(spyScroll:GetChildren()) do
+        if c:IsA("TextButton") or c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+    end
+    if #DeepData.SpiedCalls == 0 then
+        newInst("TextLabel", {
+            Size = UDim2.new(1, -8, 0, 30), BackgroundTransparency = 1,
+            Text = "  Включи Spy и жди пока игра сделает вызовы",
+            Font = Enum.Font.SourceSans, TextSize = 11,
+            TextColor3 = Color3.fromRGB(180,180,180), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 12
+        }, spyScroll)
+        return
+    end
+    for i, call in ipairs(DeepData.SpiedCalls) do
+        if i > 50 then break end
+        local container = newInst("Frame", {
+            Size = UDim2.new(1, -8, 0, 44), BackgroundColor3 = Color3.fromRGB(40, 50, 60),
+            BorderSizePixel = 0, ZIndex = 12
+        }, spyScroll)
+        makeCorner(container, 4)
+        newInst("TextLabel", {
+            Size = UDim2.new(1, -40, 0, 14), Position = UDim2.new(0, 5, 0, 2),
+            Text = call.method .. " → " .. call.path:sub(1, 50),
+            Font = Enum.Font.GothamBold, TextSize = 10,
+            TextColor3 = Color3.fromRGB(200, 255, 200), BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 13
+        }, container)
+        newInst("TextLabel", {
+            Size = UDim2.new(1, -10, 0, 26), Position = UDim2.new(0, 5, 0, 16),
+            Text = "args: " .. argsToString(call.args):sub(1, 80),
+            Font = Enum.Font.SourceSans, TextSize = 10,
+            TextColor3 = Color3.fromRGB(220, 220, 240), BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+            TextWrapped = true, ZIndex = 13
+        }, container)
+        local cpBtn = newInst("TextButton", {
+            Size = UDim2.new(0, 28, 0, 20), Position = UDim2.new(1, -30, 0, 2),
+            Text = "📋", Font = Enum.Font.GothamBold, TextSize = 10,
+            TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(50, 80, 100),
+            BorderSizePixel = 0, ZIndex = 14
+        }, container)
+        makeCorner(cpBtn, 3)
+        cpBtn.MouseButton1Click:Connect(function()
+            local snippet = call.method .. "(" .. argsToString(call.args):sub(2,-2) .. ")"
+            copyToClipboard(call.path .. ":" .. snippet)
+            cpBtn.Text = "✅"; task.wait(1); cpBtn.Text = "📋"
+        end)
+    end
 end
 local setPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false, ZIndex = 11 }, panelArea)
 tabPanels.settings = setPanel
-local setList = newInst("UIListLayout", { Padding = UDim.new(0, 6) }, setPanel)
+newInst("UIListLayout", { Padding = UDim.new(0, 6) }, setPanel)
 local function makeToggle(label, key, defColor)
     local b = newInst("TextButton", {
         Size = UDim2.new(1, -8, 0, 34), Text = "",
@@ -976,37 +1455,40 @@ local function makeToggle(label, key, defColor)
         Settings[key] = not Settings[key]
         lbl.Text = label .. "  [" .. (Settings[key] and "ON" or "OFF") .. "]"
         b.BackgroundColor3 = Settings[key] and (defColor or Color3.fromRGB(0, 150, 100)) or Color3.fromRGB(60, 60, 80)
-        if key == "SilentMode" then
-            _origPrint("[⚙️] SilentMode = " .. tostring(Settings[key]))
-        end
     end)
-    return b
+    return b, lbl
 end
-makeToggle("🛡️ Anti-Kick PRO (" .. AK.layers .. " слоёв)", "_AntiKick", Color3.fromRGB(0, 180, 120))
-local akBtn = setPanel:GetChildren()[#setPanel:GetChildren()]
-akBtn.MouseButton1Click:Connect(function()
+local akContainer, akLbl = makeToggle("🛡️ Anti-Kick PRO", "_AK", Color3.fromRGB(0, 180, 120))
+akContainer.MouseButton1Click:Connect(function()
     AK:Toggle(not AK.active)
-    local ll = akBtn:FindFirstChildOfClass("TextLabel")
-    ll.Text = "🛡️ Anti-Kick PRO (" .. AK.layers .. " слоёв)  [" .. (AK.active and "ON" or "OFF") .. "]"
-    akBtn.BackgroundColor3 = AK.active and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(60, 60, 80)
+    akLbl.Text = "🛡️ Anti-Kick PRO (" .. AK.layers .. " слоёв)  [" .. (AK.active and "ON" or "OFF") .. "]"
+    akContainer.BackgroundColor3 = AK.active and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(60, 60, 80)
 end)
-makeToggle("🤫 Silent Mode (тихие warn/print)", "SilentMode", Color3.fromRGB(80, 40, 120))
-makeToggle("🔄 Auto-Scan каждую минуту", "AutoScan", Color3.fromRGB(0, 130, 180))
-makeToggle("🔬 Детект античита при скане", "DetectAntiCheat", Color3.fromRGB(140, 60, 180))
+akLbl.Text = "🛡️ Anti-Kick PRO (" .. AK.layers .. " слоёв)  [OFF]"
+makeToggle("🤫 Silent Mode", "SilentMode", Color3.fromRGB(80, 40, 120))
+makeToggle("🔄 Auto-Scan", "AutoScan", Color3.fromRGB(0, 130, 180))
+makeToggle("🔒 Deep Access (ReplicatedFirst/etc)", "DeepAccess", Color3.fromRGB(140, 60, 180))
 scanBtn.MouseButton1Click:Connect(function()
     scanBtn.Text = "🔄 SCANNING..."
     task.spawn(function()
         runFullAnalysis(true)
-        refreshExploits()
-        refreshAnalyzer()
-        refreshWorkspaceTree()
-        scanBtn.Text = "🔄 SCAN OK: " .. #DeepData.ExploitList
-        task.wait(3)
-        scanBtn.Text = "🔄 FULL SCAN"
+        refreshExploits(); refreshAnalyzer(); refreshWorkspaceTree()
+        scanBtn.Text = "🔄 OK: " .. #DeepData.ExploitList
+        task.wait(3); scanBtn.Text = "🔄 SCAN"
+    end)
+end)
+exportBtn.MouseButton1Click:Connect(function()
+    exportBtn.Text = "📋 EXPORTING..."
+    task.spawn(function()
+        local report = fullReportToString()
+        copyToClipboard(report)
+        _origPrint("\n════ FULL REPORT ════\n" .. report)
+        exportBtn.Text = "✅ COPIED " .. math.floor(#report/1024) .. "KB"
+        task.wait(3); exportBtn.Text = "📋 EXPORT"
     end)
 end)
 execAllBtn.MouseButton1Click:Connect(function()
-    execAllBtn.Text = "🔥 EXECUTING..."
+    execAllBtn.Text = "🔥 FIRING..."
     task.spawn(function()
         local count = 0
         for _, exp in ipairs(DeepData.ExploitList) do
@@ -1014,16 +1496,13 @@ execAllBtn.MouseButton1Click:Connect(function()
             count = count + 1
             task.wait(0.03)
         end
-        execAllBtn.Text = "✅ FIRED: " .. count
-        task.wait(3)
-        execAllBtn.Text = "🔥 EXEC ALL"
+        execAllBtn.Text = "✅ " .. count
+        task.wait(3); execAllBtn.Text = "🔥 EXEC ALL"
     end)
 end)
 task.spawn(function()
     runFullAnalysis(true)
-    refreshExploits()
-    refreshAnalyzer()
-    refreshWorkspaceTree()
+    refreshExploits(); refreshAnalyzer(); refreshWorkspaceTree()
 end)
 task.spawn(function()
     while true do
@@ -1035,15 +1514,21 @@ task.spawn(function()
         end
     end
 end)
+task.spawn(function()
+    while true do
+        task.wait(2)
+        if tabPanels.spy and tabPanels.spy.Visible then pcall(refreshSpy) end
+    end
+end)
 local function unloadAll()
     AK.active = false; AK.installed = false
+    RemoteSpy.active = false
     for _, c in pairs(connections) do pcall(function() if c.Disconnect then c:Disconnect() end end) end
     for _, c in pairs(AK.hooks) do pcall(function() if c.Disconnect then c:Disconnect() end end) end
     if sg and sg.Parent then sg:Destroy() end
-    warn = _origWarn
-    print = _origPrint
+    warn = _origWarn; print = _origPrint
     _G.GameAnalyzerPro = nil
 end
 _G.GameAnalyzerPro.Unload = unloadAll
 unloadBtn.MouseButton1Click:Connect(unloadAll)
-warn("[GameAnalyzer v1.0] ✅ Загружен!")
+warn("[GameAnalyzer v2.0] ✅ Загружен! Нажми SCAN → потом EXPORT для копирования отчёта")
