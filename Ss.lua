@@ -1,4 +1,4 @@
-warn("[GameAnalyzer v3.0 MEGA DEEP] === СКРИПТ ЗАПУЩЕН ===")
+warn("[GameAnalyzer v4.0 MEGA DEEP+ ULTRA] === СКРИПТ ЗАПУЩЕН ===")
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
 end
@@ -1044,6 +1044,264 @@ local function scanBindables()
     end
 end
 
+-- ═══════════════════════════════════════════════════════════
+-- v4 ULTRA SCANNERS: ещё глубже, ещё жирнее
+-- ═══════════════════════════════════════════════════════════
+
+-- Runtime-hook Instance.new чтобы ловить RemoteEvent'ы созданные скриптом позже
+local _instanceHookInstalled = false
+local function hookInstanceNew()
+    if _instanceHookInstalled then return end
+    if not hookfunction then return end
+    _instanceHookInstalled = true
+    pcall(function()
+        local orig
+        orig = hookfunction(Instance.new, function(cls, parent)
+            local obj = orig(cls, parent)
+            pcall(function()
+                if typeof(obj) == "Instance" then
+                    if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                        DeepData.RuntimeCreatedRemotes = DeepData.RuntimeCreatedRemotes or {}
+                        safeInsert(DeepData.RuntimeCreatedRemotes, obj)
+                        task.defer(function() pcall(indexObject, obj) end)
+                    elseif obj:IsA("BindableEvent") or obj:IsA("BindableFunction") then
+                        DeepData.RuntimeCreatedBindables = DeepData.RuntimeCreatedBindables or {}
+                        safeInsert(DeepData.RuntimeCreatedBindables, obj)
+                    end
+                end
+            end)
+            return obj
+        end)
+    end)
+end
+
+-- Рекурсивный проход по upvalue-таблицам (3 уровня вглубь)
+local function deepWalkTable(t, depth, path, out, seen)
+    if depth <= 0 or type(t) ~= "table" then return end
+    if seen[t] then return end
+    seen[t] = true
+    local cnt = 0
+    for k, v in pairs(t) do
+        cnt = cnt + 1
+        if cnt > 60 then break end
+        local kpath = path .. "." .. tostring(k)
+        if typeof(v) == "Instance" then
+            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                safeInsert(out.remotes, { obj = v, path = kpath })
+                pcall(indexObject, v)
+            elseif v:IsA("BindableEvent") or v:IsA("BindableFunction") then
+                safeInsert(out.bindables, { obj = v, path = kpath })
+            end
+        elseif type(v) == "string" then
+            if #v > 3 and #v < 500 then scanStringForSecrets(v, kpath) end
+            -- UserId в конфиге?
+            if v:match("^%d%d%d%d%d%d%d+$") then
+                safeInsert(out.userIds, { id = v, path = kpath })
+            end
+            if #v > 3 and #v < 60 then
+                local lv = v:lower()
+                if lv:find("admin") or lv:find("owner") or lv:find("dev") or lv:find("mod") then
+                    safeInsert(out.adminHints, { value = v, path = kpath })
+                end
+            end
+        elseif type(v) == "number" and v > 1000000 and v < 1e12 then
+            -- Похоже на UserId
+            safeInsert(out.userIds, { id = tostring(v), path = kpath })
+        elseif type(v) == "table" then
+            deepWalkTable(v, depth - 1, kpath, out, seen)
+        end
+    end
+end
+
+local function scanAllUpvaluesDeep()
+    if not getgc or not getupvalues then return end
+    DeepData.DeepWalkResults = { remotes = {}, bindables = {}, userIds = {}, adminHints = {} }
+    local seen = {}
+    pcall(function()
+        local BATCH = 80
+        for i, fn in ipairs(getgc(true)) do
+            if type(fn) == "function" then
+                pcall(function()
+                    local ups = getupvalues(fn)
+                    if ups then
+                        for uk, uv in pairs(ups) do
+                            if type(uv) == "table" then
+                                deepWalkTable(uv, 3, "fn#" .. i .. ".up#" .. tostring(uk), DeepData.DeepWalkResults, seen)
+                            end
+                        end
+                    end
+                end)
+            end
+            if i % BATCH == 0 then task.wait() end
+            if i > 20000 then break end
+        end
+    end)
+    -- Все найденные remotes добавляем в UpvalueRemotes
+    for _, e in ipairs(DeepData.DeepWalkResults.remotes) do
+        safeInsert(DeepData.UpvalueRemotes, e.obj)
+    end
+    -- Admin hints → AdminList
+    for _, e in ipairs(DeepData.DeepWalkResults.adminHints) do
+        safeInsert(DeepData.AdminList, { name = e.value, source = "deep-walk:" .. e.path })
+    end
+    for _, e in ipairs(DeepData.DeepWalkResults.userIds) do
+        safeInsert(DeepData.AdminList, { userId = e.id, source = "deep-walk:" .. e.path })
+    end
+end
+
+-- Backdoor detector: скрипты с loadstring/require(id)/HttpGet внутри source
+local function scanForBackdoors()
+    DeepData.BackdoorScripts = {}
+    local patterns = {
+        {"loadstring%s*%(", "loadstring()"},
+        {"require%s*%(%s*%d+%s*%)", "require(assetId)"},
+        {"HttpGet%s*%(", "HttpGet()"},
+        {"HttpPost%s*%(", "HttpPost()"},
+        {"getfenv%s*%(%s*0%s*%)", "getfenv(0)"},
+        {"setfenv%s*%(", "setfenv()"},
+        {"pcall%s*%(%s*loadstring", "pcall(loadstring)"},
+        {"game:HttpGet", "game:HttpGet"},
+        {"MarketplaceService.*Prompt", "purchase-prompt-abuse"},
+        {"DataStoreService", "direct-datastore-access"},
+    }
+    for path, src in pairs(DeepData.AllScriptSources) do
+        pcall(function()
+            local hits = {}
+            for _, p in ipairs(patterns) do
+                if src:find(p[1]) then table.insert(hits, p[2]) end
+            end
+            if #hits > 0 then
+                safeInsert(DeepData.BackdoorScripts, { path = path, hits = hits })
+            end
+        end)
+    end
+end
+
+-- CollectionService tags dump
+local function scanCollectionTags()
+    DeepData.CollectionTags = {}
+    pcall(function()
+        local tags = CS:GetAllTags()
+        for _, tag in ipairs(tags) do
+            local objs = CS:GetTagged(tag)
+            table.insert(DeepData.CollectionTags, { tag = tag, count = #objs, sample = objs[1] and objs[1]:GetFullName() or "" })
+        end
+    end)
+end
+
+-- Все Attributes всех Instance (там прячут конфиг + токены)
+local function scanAllAttributes()
+    DeepData.AttributesFound = {}
+    local function scanContainer(root, rootName)
+        pcall(function()
+            for _, d in ipairs(root:GetDescendants()) do
+                pcall(function()
+                    local attrs = d:GetAttributes()
+                    if next(attrs) then
+                        local entry = { path = d:GetFullName(), attrs = {} }
+                        for k, v in pairs(attrs) do
+                            entry.attrs[tostring(k)] = tostring(v)
+                            if type(v) == "string" then scanStringForSecrets(v, d:GetFullName() .. "@" .. k) end
+                        end
+                        safeInsert(DeepData.AttributesFound, entry)
+                    end
+                end)
+            end
+        end)
+    end
+    for _, svc in ipairs({ws, rep, game:GetService("StarterGui"), game:GetService("StarterPlayer"), game:GetService("StarterPack")}) do
+        scanContainer(svc, tostring(svc))
+    end
+    for _, p in ipairs(plrs:GetPlayers()) do scanContainer(p, p.Name) end
+end
+
+-- Client-side scripts в неожиданных местах = потенциальный бэкдор
+local function scanRunContextAnomalies()
+    DeepData.RunContextAnomalies = {}
+    pcall(function()
+        for _, d in ipairs(ws:GetDescendants()) do
+            if d:IsA("LocalScript") then
+                safeInsert(DeepData.RunContextAnomalies, { path = d:GetFullName(), reason = "LocalScript in Workspace" })
+            end
+            if d:IsA("Script") then
+                pcall(function()
+                    if d.RunContext and tostring(d.RunContext) == "Enum.RunContext.Client" then
+                        safeInsert(DeepData.RunContextAnomalies, { path = d:GetFullName(), reason = "Script(RunContext=Client) in Workspace" })
+                    end
+                end)
+            end
+        end
+        for _, d in ipairs(rep:GetDescendants()) do
+            if d:IsA("LocalScript") then
+                safeInsert(DeepData.RunContextAnomalies, { path = d:GetFullName(), reason = "LocalScript in ReplicatedStorage" })
+            end
+        end
+    end)
+end
+
+-- Прокси: находим Remote'ы у которых имя не совпадает с их использованием (обфускация)
+local function scanNamingObfuscation()
+    DeepData.NamingObfuscation = {}
+    for _, cat in ipairs({"UnknownRemotes","ObfuscatedRemotes"}) do
+        for _, r in ipairs(DeepData[cat] or {}) do
+            pcall(function()
+                local nm = r.Name
+                if nm:match("^[a-f0-9]+$") and #nm >= 8 then
+                    safeInsert(DeepData.NamingObfuscation, { path = r:GetFullName(), reason = "hex-name" })
+                elseif nm:match("^[A-Za-z0-9+/=]+$") and #nm >= 12 then
+                    safeInsert(DeepData.NamingObfuscation, { path = r:GetFullName(), reason = "base64-like" })
+                elseif nm:find("%z") or nm:find("[\1-\31]") then
+                    safeInsert(DeepData.NamingObfuscation, { path = r:GetFullName(), reason = "control-chars" })
+                elseif #nm > 30 then
+                    safeInsert(DeepData.NamingObfuscation, { path = r:GetFullName(), reason = "very-long-name" })
+                end
+            end)
+        end
+    end
+end
+
+-- MarketplaceService products / passes
+local function scanMarketplace()
+    DeepData.MarketplaceProducts = {}
+    pcall(function()
+        local MP = game:GetService("MarketplaceService")
+        -- Из констант выцепим product IDs
+        for _, e in ipairs(DeepData.DiscoveredIDs) do
+            if tostring(e.type):find("PRODUCT") or tostring(e.type):find("GAMEPASS") then
+                safeInsert(DeepData.MarketplaceProducts, e)
+            end
+        end
+    end)
+end
+
+-- Дампим все ScreenGui у игрока чтобы найти скрытые админ-панели
+local function scanPlayerGuis()
+    DeepData.PlayerGuiScan = {}
+    pcall(function()
+        local pg = lp:FindFirstChild("PlayerGui")
+        if not pg then return end
+        for _, gui in ipairs(pg:GetChildren()) do
+            local nm = safeLower(gui.Name)
+            if nm:find("admin") or nm:find("dev") or nm:find("mod") or nm:find("owner") or nm:find("debug") or nm:find("cheat") then
+                safeInsert(DeepData.PlayerGuiScan, { path = gui:GetFullName(), reason = "suspicious-name", enabled = gui.Enabled })
+            elseif not gui.Enabled then
+                safeInsert(DeepData.PlayerGuiScan, { path = gui:GetFullName(), reason = "hidden(disabled)", enabled = false })
+            end
+        end
+    end)
+end
+
+-- Считаем сколько раз каждый remote вызывается (topN abused)
+local function computeAbusedRemotes()
+    DeepData.MostCalledRemotes = {}
+    local list = {}
+    for path, sig in pairs(DeepData.CallSignatures) do
+        table.insert(list, { path = path, count = sig.count })
+    end
+    table.sort(list, function(a,b) return a.count > b.count end)
+    for i = 1, math.min(30, #list) do DeepData.MostCalledRemotes[i] = list[i] end
+end
+
 local function buildExploitList()
     DeepData.ExploitList = {}
     local seen = {}
@@ -1119,12 +1377,22 @@ local function runFullAnalysis(force)
     dumpPlayerContext()
     scanNetworkOwners()
     scanRemoteConnectionCount()
-    task.wait(0.5)
+    -- v4 ULTRA scanners
+    scanAllUpvaluesDeep()
+    scanCollectionTags()
+    scanAllAttributes()
+    scanRunContextAnomalies()
+    scanPlayerGuis()
+    task.wait(0.3)
     attemptDecompile()
+    scanForBackdoors()          -- нужно ПОСЛЕ AllScriptSources
+    scanNamingObfuscation()     -- нужно ПОСЛЕ индекса remote
+    scanMarketplace()
+    computeAbusedRemotes()
     buildExploitList()
     DeepData.ScanTime = tick() - now
     warn("╔═════════════════════════════════════════════╗")
-    warn("║ 🔬 GAME ANALYZER v3 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
+    warn("║ 🔬 GAME ANALYZER v4 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
     warn("║ 🎮 " .. tostring(DeepData.GameName) .. " (place=" .. tostring(DeepData.PlaceId) .. ")")
     warn("╠═════════════════════════════════════════════╣")
     warn(string.format("║ 🚪 Total exploits: %d", #DeepData.ExploitList))
@@ -1220,8 +1488,14 @@ local function executeExploit(exp)
 end
 local function copyToClipboard(text)
     if setclipboard then
-        pcall(function() setclipboard(text) end)
-        return true
+        -- v4: несколько попыток, потому что мобильные executors иногда не срабатывают с первого раза
+        local ok = false
+        for _ = 1, 3 do
+            local success = pcall(function() setclipboard(text) end)
+            if success then ok = true; break end
+            task.wait(0.1)
+        end
+        return ok
     end
     warn("[📋] setclipboard недоступен — text:\n" .. text:sub(1, 500))
     return false
@@ -1293,7 +1567,7 @@ local function fullReportToString()
     local function sec(title) w(""); w("╔══════════════════════════════════════════════════════════════╗"); w("║ " .. title); w("╚══════════════════════════════════════════════════════════════╝") end
 
     w("╔══════════════════════════════════════════════════════════════╗")
-    w("║ 🔬 GAME ANALYZER v3.0 MEGA DEEP — FULL REPORT")
+    w("║ 🔬 GAME ANALYZER v4.0 MEGA DEEP — FULL REPORT")
     w("║ Scan #" .. DeepData.ScanCount .. " | ScanTime: " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
     w("║ 🎮 Game: " .. tostring(DeepData.GameName))
     w("║ GameId=" .. tostring(DeepData.GameId) .. " | PlaceId=" .. tostring(DeepData.PlaceId))
@@ -1356,8 +1630,7 @@ local function fullReportToString()
         if #list == 0 then return end
         w("")
         w("── " .. label .. " (" .. #list .. ") ──")
-        for i, e in ipairs(list) do
-            if i > 30 then w("  ... +" .. (#list - 30) .. " more"); break end
+        for _, e in ipairs(list) do
             w("  [" .. tostring(e.type or "?") .. "] " .. tostring(e.value or e.id or e.name) .. "   ← " .. tostring(e.source or "?"))
         end
     end
@@ -1373,8 +1646,7 @@ local function fullReportToString()
     -- ============ ADMIN LIST ============
     if #DeepData.AdminList > 0 then
         sec("👑 ADMIN / OWNER LIST (extracted from closures)")
-        for i, a in ipairs(DeepData.AdminList) do
-            if i > 50 then w("  ... +" .. (#DeepData.AdminList - 50) .. " more"); break end
+        for _, a in ipairs(DeepData.AdminList) do
             w("  " .. tostring(a.name or a.userId) .. "   ← " .. tostring(a.source))
         end
     end
@@ -1394,7 +1666,6 @@ local function fullReportToString()
         w("")
         w("═════ CATEGORY: " .. cat:upper() .. " (" .. #list .. ") ═════")
         for i, exp in ipairs(list) do
-            if i > 15 then w("  ... +" .. (#list - 15) .. " more in this category"); break end
             w("")
             w("  " .. exp.effectIcon .. " [" .. exp.risk .. " | score=" .. tostring(exp.score) .. "] " .. exp.name .. " (" .. exp.class .. ")")
             w("    Path: " .. exp.path)
@@ -1425,40 +1696,31 @@ local function fullReportToString()
     end
 
     -- ============ SPY LOG ============
-    sec("🕵️ REMOTE SPY LOG (last " .. math.min(50, #DeepData.SpiedCalls) .. " calls)")
-    for i, call in ipairs(DeepData.SpiedCalls) do
-        if i > 50 then break end
+    sec("🕵️ REMOTE SPY LOG (all " .. #DeepData.SpiedCalls .. " calls)")
+    for _, call in ipairs(DeepData.SpiedCalls) do
         w("  " .. call.method .. " → " .. call.path)
         w("    args: " .. argsToString(call.args))
     end
     w("")
     w("[Call Signatures Summary]")
-    local sigcnt = 0
     for path, sig in pairs(DeepData.CallSignatures) do
-        sigcnt = sigcnt + 1
-        if sigcnt > 30 then w("  ... +more"); break end
         w("  " .. path .. " called " .. sig.count .. " times")
     end
 
     -- ============ PROTECTED / HIDDEN INSTANCES ============
     sec("🔒 PROTECTED INSTANCES (ServerStorage/ReplicatedFirst/SSS)")
-    for i, pi in ipairs(DeepData.ProtectedInstances) do
-        if i > 100 then w("  ... +" .. (#DeepData.ProtectedInstances - 100) .. " more"); break end
+    for _, pi in ipairs(DeepData.ProtectedInstances) do
         w("  [" .. pi.service .. "] " .. pi.class .. ": " .. pi.path)
     end
 
     sec("🕳️ NIL-PARENT INSTANCES (hidden from Explorer)")
-    for i, o in ipairs(DeepData.NilParentObjects) do
-        if i > 50 then w("  ... +more"); break end
+    for _, o in ipairs(DeepData.NilParentObjects) do
         pcall(function() w("  " .. o.ClassName .. ": " .. o.Name) end)
     end
 
     -- ============ MODULE RETURNS ============
     sec("📦 LOADED MODULE RETURN VALUES (require dumps)")
-    local mrcnt = 0
     for path, dump in pairs(DeepData.ModuleReturns) do
-        mrcnt = mrcnt + 1
-        if mrcnt > 15 then w(""); w("  ... +more modules"); break end
         w("")
         w("── " .. path .. " ──")
         for k, v in pairs(dump) do
@@ -1479,7 +1741,7 @@ local function fullReportToString()
     local dc = 0
     for path, src in pairs(DeepData.AllScriptSources) do
         dc = dc + 1
-        if dc > 15 then w(""); w("  ... +" .. ((function() local c=0 for _ in pairs(DeepData.AllScriptSources) do c=c+1 end return c end)() - 15) .. " more scripts (increase limit / use per-script copy)"); break end
+        -- v4: НИКАКИХ лимитов, дампим ВСЕ скрипты целиком
         w("")
         w("╭─── SCRIPT #" .. dc .. ": " .. path .. " ───")
         w(src)
@@ -1504,31 +1766,121 @@ local function fullReportToString()
     -- ============ NETWORK OWNERS ============
     if #DeepData.NetworkOwners > 0 then
         sec("🌍 LOCAL-OWNED PARTS (you can teleport/velocity these freely)")
-        for i, o in ipairs(DeepData.NetworkOwners) do
-            if i > 40 then w("  ... +more"); break end
-            w("  " .. o.path)
-        end
+        for _, o in ipairs(DeepData.NetworkOwners) do w("  " .. o.path) end
     end
 
     -- ============ BINDABLES ============
     if #DeepData.BindableEvents > 0 or #DeepData.BindableFunctions > 0 then
         sec("🔗 BINDABLES (client-side event/function; sometimes bridged to server)")
-        for i, b in ipairs(DeepData.BindableEvents) do
-            if i > 30 then break end
-            w("  [Event] " .. b:GetFullName())
+        for _, b in ipairs(DeepData.BindableEvents) do
+            pcall(function() w("  [Event] " .. b:GetFullName()) end)
         end
-        for i, b in ipairs(DeepData.BindableFunctions) do
-            if i > 30 then break end
-            w("  [Func]  " .. b:GetFullName())
+        for _, b in ipairs(DeepData.BindableFunctions) do
+            pcall(function() w("  [Func]  " .. b:GetFullName()) end)
         end
     end
 
     -- ============ INVOKER MAP ============
     if #DeepData.RemoteInvokers > 0 then
         sec("📡 REMOTE INVOKER MAP (constants pointing to Fire/Invoke calls)")
-        for i, r in ipairs(DeepData.RemoteInvokers) do
-            if i > 60 then break end
+        for _, r in ipairs(DeepData.RemoteInvokers) do
             w("  " .. r.method .. " '" .. r.name .. "'  (found in gc#" .. r.func_index .. ")")
+        end
+    end
+
+    -- ============ v4 ULTRA: BACKDOORS ============
+    if DeepData.BackdoorScripts and #DeepData.BackdoorScripts > 0 then
+        sec("🚪 SUSPECTED BACKDOOR SCRIPTS (loadstring/HttpGet/require(id)/etc)")
+        for _, b in ipairs(DeepData.BackdoorScripts) do
+            w("  " .. b.path)
+            w("    hits: " .. table.concat(b.hits, ", "))
+        end
+    end
+
+    -- ============ v4: RUN CONTEXT ANOMALIES ============
+    if DeepData.RunContextAnomalies and #DeepData.RunContextAnomalies > 0 then
+        sec("⚠️ RUN CONTEXT ANOMALIES (client scripts in weird places)")
+        for _, a in ipairs(DeepData.RunContextAnomalies) do
+            w("  " .. a.reason .. " :: " .. a.path)
+        end
+    end
+
+    -- ============ v4: NAMING OBFUSCATION ============
+    if DeepData.NamingObfuscation and #DeepData.NamingObfuscation > 0 then
+        sec("🌀 OBFUSCATED REMOTE NAMES")
+        for _, o in ipairs(DeepData.NamingObfuscation) do
+            w("  [" .. o.reason .. "] " .. o.path)
+        end
+    end
+
+    -- ============ v4: RUNTIME-CREATED REMOTES ============
+    if DeepData.RuntimeCreatedRemotes and #DeepData.RuntimeCreatedRemotes > 0 then
+        sec("🎬 RUNTIME-CREATED REMOTES (caught by Instance.new hook)")
+        for _, r in ipairs(DeepData.RuntimeCreatedRemotes) do
+            pcall(function() w("  " .. r.ClassName .. ": " .. r:GetFullName()) end)
+        end
+    end
+
+    -- ============ v4: SUSPICIOUS PLAYER GUIS ============
+    if DeepData.PlayerGuiScan and #DeepData.PlayerGuiScan > 0 then
+        sec("🖼️ SUSPICIOUS PLAYER GUIs (admin panels / hidden UIs)")
+        for _, g in ipairs(DeepData.PlayerGuiScan) do
+            w("  [" .. g.reason .. "] enabled=" .. tostring(g.enabled) .. " :: " .. g.path)
+        end
+    end
+
+    -- ============ v4: COLLECTION TAGS ============
+    if DeepData.CollectionTags and #DeepData.CollectionTags > 0 then
+        sec("🏷️ COLLECTION SERVICE TAGS")
+        for _, t in ipairs(DeepData.CollectionTags) do
+            w("  '" .. t.tag .. "' × " .. t.count .. "  sample=" .. t.sample)
+        end
+    end
+
+    -- ============ v4: ATTRIBUTES ============
+    if DeepData.AttributesFound and #DeepData.AttributesFound > 0 then
+        sec("📋 INSTANCE ATTRIBUTES (config often lives here)")
+        for _, e in ipairs(DeepData.AttributesFound) do
+            w("  " .. e.path)
+            for k, v in pairs(e.attrs) do w("    @" .. k .. " = " .. v) end
+        end
+    end
+
+    -- ============ v4: MOST-CALLED REMOTES ============
+    if DeepData.MostCalledRemotes and #DeepData.MostCalledRemotes > 0 then
+        sec("🔥 MOST-CALLED REMOTES (topN by RemoteSpy)")
+        for i, r in ipairs(DeepData.MostCalledRemotes) do
+            w("  " .. i .. ". " .. r.count .. "× " .. r.path)
+        end
+    end
+
+    -- ============ v4: DEEP WALK RESULTS ============
+    if DeepData.DeepWalkResults then
+        local dw = DeepData.DeepWalkResults
+        if #dw.remotes > 0 or #dw.userIds > 0 or #dw.adminHints > 0 then
+            sec("🕳️ DEEP WALK RESULTS (3-level upvalue-table dive)")
+            w("Remotes discovered in upvalue-tables: " .. #dw.remotes)
+            for _, e in ipairs(dw.remotes) do
+                pcall(function() w("  " .. e.obj:GetFullName() .. "  @" .. e.path) end)
+            end
+            if #dw.userIds > 0 then
+                w("")
+                w("UserID-like values discovered:")
+                for _, e in ipairs(dw.userIds) do w("  " .. e.id .. "  @" .. e.path) end
+            end
+            if #dw.adminHints > 0 then
+                w("")
+                w("Admin/Owner hints:")
+                for _, e in ipairs(dw.adminHints) do w("  '" .. e.value .. "'  @" .. e.path) end
+            end
+        end
+    end
+
+    -- ============ v4: CONSTANTS DEEP DUMP ============
+    if #DeepData.DeepConstantDump > 0 then
+        sec("🔤 SUSPICIOUS CONSTANTS FROM CLOSURES")
+        for _, c in ipairs(DeepData.DeepConstantDump) do
+            w("  [" .. c.src .. "] " .. c.value)
         end
     end
 
@@ -1550,7 +1902,7 @@ local function fullReportToString()
     w(" - Network ownership map")
     w("")
     w("╔══════════════════════════════════════════════════════════════╗")
-    w("║ END OF REPORT — GameAnalyzer v3.0 MEGA DEEP")
+    w("║ END OF REPORT — GameAnalyzer v4.0 MEGA DEEP+ ULTRA")
     w("║ Total size: " .. tostring(math.floor((#table.concat(out, "\n"))/1024)) .. " KB")
     w("╚══════════════════════════════════════════════════════════════╝")
     return table.concat(out, "\n")
@@ -1782,7 +2134,7 @@ makeCorner(mf, 10)
 newInst("UIStroke", { Color = Color3.fromRGB(80, 80, 100), Thickness = 2, Transparency = 0.3 }, mf)
 local title = newInst("TextLabel", {
     Size = UDim2.new(1, -70, 0, 32),
-    Text = "  🔬 GAME ANALYZER v3.0",
+    Text = "  🔬 GAME ANALYZER v4.0",
     TextColor3 = Color3.fromRGB(150, 220, 255),
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -2251,42 +2603,31 @@ end)
 exportBtn.MouseButton1Click:Connect(function()
     exportBtn.Text = "📋 BUILDING..."
     task.spawn(function()
-        local report = rebuildReportChunks()
-        local n = #DeepData.ReportChunks
-        -- Копируем первый кусок сразу, следующие через повторные клики
-        if n > 0 then
-            copyToClipboard(DeepData.ReportChunks[1])
-            DeepData.ReportChunkIndex = 2
-        end
-        _origPrint("\n════ FULL REPORT (" .. math.floor(#report/1024) .. "KB, " .. n .. " parts) ════\n" .. report)
+        local report = fullReportToString()
+        -- Сохраняем файлом если можем (страховка на случай если буфер обрезан executor'ом)
         if writefile then
-            exportBtn.Text = "✅ 1/" .. n .. " → file+clip"
-        else
-            exportBtn.Text = "✅ COPIED 1/" .. n .. " (click for next)"
+            pcall(function() writefile("GameAnalyzer_Report.txt", report) end)
         end
-        task.wait(4)
-        if DeepData.ReportChunkIndex > n then
-            exportBtn.Text = "📋 EXPORT"
+        -- Копируем ВСЁ ЦЕЛИКОМ в буфер за один раз
+        local ok = pcall(function() copyToClipboard(report) end)
+        _origPrint("\n════ FULL REPORT (" .. math.floor(#report/1024) .. "KB) ════\n" .. report)
+        if ok then
+            exportBtn.Text = "✅ ALL " .. math.floor(#report/1024) .. "KB → clip"
         else
-            exportBtn.Text = "📤 NEXT " .. DeepData.ReportChunkIndex .. "/" .. n
+            exportBtn.Text = "⚠️ clip fail (см. файл)"
         end
+        task.wait(4); exportBtn.Text = "📋 EXPORT"
     end)
 end)
--- Дополнительная кнопка: правый клик или повторный клик → следующий кусок
+-- Правый клик = пересобрать и снова скопировать целиком (если буфер вдруг перезаписан)
 exportBtn.MouseButton2Click:Connect(function()
-    local n = #DeepData.ReportChunks
-    if n == 0 then exportBtn.Text = "⚠️ EXPORT FIRST"; task.wait(2); exportBtn.Text = "📋 EXPORT"; return end
-    local idx = DeepData.ReportChunkIndex
-    if idx > n then idx = 1 end
-    copyToClipboard(DeepData.ReportChunks[idx])
-    exportBtn.Text = "✅ " .. idx .. "/" .. n .. " copied"
-    DeepData.ReportChunkIndex = idx + 1
-    task.wait(3)
-    if DeepData.ReportChunkIndex > n then
-        exportBtn.Text = "📋 DONE (RMB=restart)"
-    else
-        exportBtn.Text = "📤 NEXT " .. DeepData.ReportChunkIndex .. "/" .. n
-    end
+    exportBtn.Text = "📋 RE-COPY..."
+    task.spawn(function()
+        local report = fullReportToString()
+        pcall(function() copyToClipboard(report) end)
+        exportBtn.Text = "✅ RE-COPIED " .. math.floor(#report/1024) .. "KB"
+        task.wait(3); exportBtn.Text = "📋 EXPORT"
+    end)
 end)
 execAllBtn.MouseButton1Click:Connect(function()
     execAllBtn.Text = "🔥 FIRING..."
@@ -2301,6 +2642,8 @@ execAllBtn.MouseButton1Click:Connect(function()
         task.wait(3); execAllBtn.Text = "🔥 EXEC ALL"
     end)
 end)
+-- v4: инсталим Instance.new hook сразу — ловим будущие RemoteEvent'ы
+pcall(hookInstanceNew)
 task.spawn(function()
     runFullAnalysis(true)
     refreshExploits(); refreshAnalyzer(); refreshWorkspaceTree()
@@ -2332,8 +2675,8 @@ local function unloadAll()
 end
 _G.GameAnalyzerPro.Unload = unloadAll
 unloadBtn.MouseButton1Click:Connect(unloadAll)
-warn("[GameAnalyzer v3.0 MEGA DEEP] ✅ Загружен!")
-warn("[v3] 🔄 SCAN — глубокий анализ (getinstances/getnilinstances/getloadedmodules/require дампы/decompile всех LocalScript'ов)")
-warn("[v3] 📋 EXPORT — левый клик: 1-я часть отчёта в буфер + файл GameAnalyzer_Report.txt")
-warn("[v3] 📤 EXPORT — правый клик: следующая часть отчёта (для длинных дампов)")
-warn("[v3] Отчёт содержит реальный код игры + все секреты (webhooks/keys/passwords/admin lists)")
+warn("[GameAnalyzer v4.0 MEGA DEEP+ ULTRA] ✅ Загружен!")
+warn("[v4] 🔄 SCAN — мега-глубокий анализ (все прошлые векторы + deepWalk upvalue-таблиц + Instance.new hook + backdoor detector + attributes/tags/RunContext аномалии)")
+warn("[v4] 📋 EXPORT — ЛКМ: ВЕСЬ отчёт целиком в буфер (без разбиения) + файл GameAnalyzer_Report.txt")
+warn("[v4] 📋 EXPORT — ПКМ: пересобрать и снова скопировать целиком")
+warn("[v4] Отчёт содержит: реальный код всех скриптов игры + секреты (webhooks/keys/passwords/tokens) + admin lists + attributes + tags + backdoors")
