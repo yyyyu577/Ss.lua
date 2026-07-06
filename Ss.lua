@@ -1,4 +1,4 @@
-warn("[GameAnalyzer v2.0] === СКРИПТ ЗАПУЩЕН ===")
+warn("[GameAnalyzer v3.0 MEGA DEEP] === СКРИПТ ЗАПУЩЕН ===")
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
 end
@@ -31,6 +31,28 @@ local _fireproximityprompt = rawget(getfenv(), "fireproximityprompt")
 local _fireclickdetector = rawget(getfenv(), "fireclickdetector")
 local _decompile = rawget(getfenv(), "decompile")
 local _getnamecallmethod = rawget(getfenv(), "getnamecallmethod")
+local _getinstances = rawget(getfenv(), "getinstances") or rawget(getfenv(), "get_instances")
+local _getnilinstances = rawget(getfenv(), "getnilinstances") or rawget(getfenv(), "get_nil_instances")
+local _getloadedmodules = rawget(getfenv(), "getloadedmodules") or rawget(getfenv(), "get_loaded_modules")
+local _getrunningscripts = rawget(getfenv(), "getrunningscripts") or rawget(getfenv(), "get_running_scripts")
+local _getscripts = rawget(getfenv(), "getscripts") or rawget(getfenv(), "get_scripts")
+local _getsenv = rawget(getfenv(), "getsenv")
+local _getcallingscript = rawget(getfenv(), "getcallingscript")
+local _getstack = rawget(getfenv(), "getstack") or (debug and debug.getstack)
+local _getinfo = rawget(getfenv(), "getinfo") or (debug and debug.getinfo)
+local _getcustomasset = rawget(getfenv(), "getcustomasset") or rawget(getfenv(), "getsynasset")
+local _readfile = rawget(getfenv(), "readfile")
+local _writefile = rawget(getfenv(), "writefile")
+local _appendfile = rawget(getfenv(), "appendfile")
+local _makefolder = rawget(getfenv(), "makefolder")
+local _listfiles = rawget(getfenv(), "listfiles")
+local _isfile = rawget(getfenv(), "isfile")
+local _isfolder = rawget(getfenv(), "isfolder")
+local _httprequest = rawget(getfenv(), "request") or rawget(getfenv(), "http_request") or (syn and syn.request)
+local _protectgui = rawget(getfenv(), "protect_gui") or rawget(getfenv(), "protectgui")
+local _cloneref = rawget(getfenv(), "cloneref") or function(x) return x end
+local _getthreadidentity = rawget(getfenv(), "getthreadidentity") or rawget(getfenv(), "getidentity")
+local _setthreadidentity = rawget(getfenv(), "setthreadidentity") or rawget(getfenv(), "setidentity")
 hookfunction = _hookfn
 hookmetamethod = _hookmm
 getgc = _getgc
@@ -49,6 +71,20 @@ fireclickdetector = _fireclickdetector
 setclipboard = _setclipboard
 decompile = _decompile
 getnamecallmethod = _getnamecallmethod
+getinstances = _getinstances
+getnilinstances = _getnilinstances
+getloadedmodules = _getloadedmodules
+getrunningscripts = _getrunningscripts
+getscripts = _getscripts
+getsenv = _getsenv
+getcallingscript = _getcallingscript
+readfile = _readfile
+writefile = _writefile
+appendfile = _appendfile
+makefolder = _makefolder
+listfiles = _listfiles
+isfile = _isfile
+isfolder = _isfolder
 local Settings = {
     SilentMode = false,
     AutoScan = true,
@@ -81,6 +117,21 @@ local DeepData = {
     AnticheatType = "Unknown",
     ScanTime = 0, ScanCount = 0,
     GameId = 0, PlaceId = 0, GameName = "?",
+    -- v3 MEGA DEEP additions
+    AllInstances = {}, NilInstances = {}, LoadedModules = {}, RunningScripts = {},
+    AllRemotesEver = {}, RemoteConnections = {},
+    DiscoveredKeys = {}, DiscoveredURLs = {}, DiscoveredWebhooks = {}, DiscoveredIDs = {},
+    DiscoveredPasswords = {}, DiscoveredTokens = {}, DiscoveredHashes = {},
+    AllScriptSources = {}, ModuleReturns = {}, ClosureDump = {},
+    ProtoScan = {}, DeepConstantDump = {}, UpvalueDump = {},
+    ActorScripts = {}, ClientContextScripts = {}, ObfuscatedScriptSources = {},
+    AdminList = {}, DevProductIDs = {}, GamepassIDs = {}, AssetIDs = {},
+    LocalPlayerData = {}, LeaderstatsSchema = {}, DataStoreNames = {},
+    SecretsInStorage = {}, RemoteInvokers = {}, EventFireStats = {},
+    BindableEvents = {}, BindableFunctions = {}, GlobalTable = {},
+    NetworkOwners = {}, TeamsInfo = {},
+    ReportChunks = {}, ReportChunkIndex = 1,
+    MegaScanStats = {},
 }
 local connections = {}
 local _origWarn = warn
@@ -554,6 +605,445 @@ local function scanProtectedInstances()
         end
     end)
 end
+-- ═══════════════════════════════════════════════════════════
+-- v3 MEGA DEEP SCANNERS: залезаем куда обычно не залезть
+-- ═══════════════════════════════════════════════════════════
+
+-- Паттерны для распознавания секретов в constants/strings
+local SECRET_PATTERNS = {
+    url      = {"^https?://[%w%._%-/%?&=#%%~:]+", label="URL"},
+    webhook  = {"discord%.com/api/webhooks/[%w/_%-]+", label="DISCORD WEBHOOK"},
+    webhook2 = {"discordapp%.com/api/webhooks/[%w/_%-]+", label="DISCORD WEBHOOK"},
+    apikey   = {"[Aa][Pp][Ii][_%-]?[Kk][Ee][Yy][%s=:\"']+[%w%-]+", label="API KEY"},
+    token    = {"[Tt][Oo][Kk][Ee][Nn][%s=:\"']+[%w%-%._]+", label="TOKEN"},
+    passwd   = {"[Pp][Aa][Ss][Ss][Ww]?[Oo]?[Rr]?[Dd][%s=:\"']+[%w%-%._!@#$]+", label="PASSWORD"},
+    secret   = {"[Ss][Ee][Cc][Rr][Ee][Tt][%s=:\"']+[%w%-%._]+", label="SECRET"},
+    bearer   = {"[Bb]earer%s+[%w%-%._]+", label="BEARER"},
+    md5      = {"[a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9]$", label="MD5-LIKE"},
+    productid= {"[Pp]roductId[%s=:]+(%d+)", label="DEV PRODUCT ID"},
+    gamepass = {"[Gg]amepassId[%s=:]+(%d+)", label="GAMEPASS ID"},
+    datastore= {"[Dd]ata[Ss]tore[%s%(:\"']+([%w_%-]+)", label="DATASTORE NAME"},
+    admin    = {"[Aa]dmin[Ll]ist[%s=:{]+", label="ADMIN LIST BLOCK"},
+}
+
+local function scanStringForSecrets(str, sourcePath)
+    if type(str) ~= "string" or #str > 20000 or #str < 4 then return end
+    for pname, pdef in pairs(SECRET_PATTERNS) do
+        pcall(function()
+            for match in str:gmatch(pdef[1]) do
+                if #match < 500 and #match > 3 then
+                    local entry = { value = match, source = sourcePath or "?", type = pdef.label }
+                    if pdef.label:find("URL") and not pdef.label:find("WEBHOOK") then
+                        safeInsert(DeepData.DiscoveredURLs, entry)
+                    elseif pdef.label:find("WEBHOOK") then
+                        safeInsert(DeepData.DiscoveredWebhooks, entry)
+                    elseif pdef.label:find("PASSWORD") then
+                        safeInsert(DeepData.DiscoveredPasswords, entry)
+                    elseif pdef.label:find("TOKEN") or pdef.label:find("BEARER") then
+                        safeInsert(DeepData.DiscoveredTokens, entry)
+                    elseif pdef.label:find("KEY") or pdef.label:find("SECRET") then
+                        safeInsert(DeepData.DiscoveredKeys, entry)
+                    elseif pdef.label:find("ID") then
+                        safeInsert(DeepData.DiscoveredIDs, entry)
+                    elseif pdef.label:find("MD5") then
+                        safeInsert(DeepData.DiscoveredHashes, entry)
+                    end
+                end
+            end
+        end)
+    end
+    -- ID hunting: 12+ digit numeric literals часто = asset/product ids
+    pcall(function()
+        for id in str:gmatch("(%d%d%d%d%d%d%d%d%d%d+)") do
+            if #id <= 15 then
+                safeInsert(DeepData.AssetIDs, { id = id, source = sourcePath or "?" })
+            end
+        end
+    end)
+end
+
+-- Сканим ВСЕ Instance в игре включая nil-parent через executor API
+local function scanAllInstances()
+    DeepData.AllInstances = {}
+    DeepData.NilInstances = {}
+    pcall(function()
+        if getinstances then
+            local all = getinstances()
+            for i, o in ipairs(all) do
+                safeInsert(DeepData.AllInstances, o)
+                if i > 50000 then break end
+            end
+        end
+    end)
+    pcall(function()
+        if getnilinstances then
+            for _, o in ipairs(getnilinstances()) do
+                safeInsert(DeepData.NilInstances, o)
+                pcall(function()
+                    if typeof(o) == "Instance" then
+                        if o:IsA("RemoteEvent") or o:IsA("RemoteFunction") then
+                            safeInsert(DeepData.NilParentObjects, o)
+                            indexObject(o)
+                        elseif o:IsA("BindableEvent") then
+                            safeInsert(DeepData.BindableEvents, o)
+                        elseif o:IsA("BindableFunction") then
+                            safeInsert(DeepData.BindableFunctions, o)
+                        end
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- Дампим ВСЕ загруженные модули + пытаемся require() → снимаем возвращаемую таблицу
+local function scanLoadedModules()
+    if not getloadedmodules then return end
+    DeepData.LoadedModules = {}
+    DeepData.ModuleReturns = {}
+    pcall(function()
+        local ms = getloadedmodules()
+        local BATCH = 40
+        for i, m in ipairs(ms) do
+            pcall(function()
+                if typeof(m) == "Instance" and m:IsA("ModuleScript") then
+                    safeInsert(DeepData.LoadedModules, m)
+                    -- Пытаемся require: часто модуль отдаёт таблицу с remote refs / config
+                    local ok, ret = pcall(require, m)
+                    if ok and type(ret) == "table" then
+                        local dump = {}
+                        local cnt = 0
+                        for k, v in pairs(ret) do
+                            cnt = cnt + 1
+                            if cnt > 50 then break end
+                            local vs
+                            if typeof(v) == "Instance" then
+                                vs = "<Instance " .. v.ClassName .. " " .. v:GetFullName() .. ">"
+                                if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
+                                    indexObject(v)
+                                end
+                            elseif type(v) == "function" then vs = "<function>"
+                            elseif type(v) == "table" then vs = "<table len=" .. #v .. ">"
+                            elseif type(v) == "string" then
+                                vs = v:sub(1, 200)
+                                scanStringForSecrets(v, m:GetFullName())
+                            else vs = tostring(v) end
+                            dump[tostring(k)] = vs
+                        end
+                        DeepData.ModuleReturns[m:GetFullName()] = dump
+                    end
+                end
+            end)
+            if i % BATCH == 0 then task.wait() end
+        end
+    end)
+end
+
+-- Дампим ВСЕ скрипты + пытаемся decompile каждый
+local function scanAllScripts()
+    if not decompile then return end
+    DeepData.AllScriptSources = {}
+    DeepData.ActorScripts = {}
+    DeepData.ClientContextScripts = {}
+    local candidates = {}
+    if getscripts then
+        pcall(function()
+            for _, s in ipairs(getscripts()) do table.insert(candidates, s) end
+        end)
+    end
+    if getrunningscripts then
+        pcall(function()
+            for _, s in ipairs(getrunningscripts()) do table.insert(candidates, s) end
+        end)
+    end
+    if getloadedmodules then
+        pcall(function()
+            for _, s in ipairs(getloadedmodules()) do table.insert(candidates, s) end
+        end)
+    end
+    -- Fallback: descendants
+    for _, root in ipairs({ws, rep, game:GetService("StarterPlayer"), game:GetService("StarterGui"), game:GetService("StarterPack")}) do
+        pcall(function()
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Script") then
+                    table.insert(candidates, d)
+                end
+            end
+        end)
+    end
+    local seen = {}
+    local decompiled = 0
+    for i, s in ipairs(candidates) do
+        pcall(function()
+            if seen[s] then return end
+            seen[s] = true
+            if typeof(s) ~= "Instance" then return end
+            if s:IsA("Actor") then safeInsert(DeepData.ActorScripts, s) end
+            pcall(function()
+                if s.RunContext and tostring(s.RunContext) == "Enum.RunContext.Client" then
+                    safeInsert(DeepData.ClientContextScripts, s)
+                end
+            end)
+            if decompiled < 60 then
+                local ok, src = pcall(decompile, s)
+                if ok and type(src) == "string" and #src > 20 then
+                    DeepData.AllScriptSources[s:GetFullName()] = src:sub(1, 8000)
+                    decompiled = decompiled + 1
+                    scanStringForSecrets(src, s:GetFullName())
+                    -- Обфусцированный источник?
+                    local density = 0
+                    for _ in src:gmatch("[\\_]0x[%dA-Fa-f]+") do density = density + 1 end
+                    for _ in src:gmatch("\\%d%d%d") do density = density + 1 end
+                    if density > 20 or src:find("v[0-9]+_v[0-9]+_v") then
+                        safeInsert(DeepData.ObfuscatedScriptSources, { path = s:GetFullName(), density = density })
+                    end
+                end
+            end
+        end)
+        if i % 10 == 0 then task.wait() end
+        if i > 500 then break end
+    end
+end
+
+-- ГЛУБОКИЙ дамп замыканий: getconstants + getupvalues + getprotos рекурсивно
+local function megaDumpClosures()
+    if not getgc then return end
+    DeepData.DeepConstantDump = {}
+    DeepData.UpvalueDump = {}
+    DeepData.ProtoScan = {}
+    DeepData.RemoteInvokers = {}
+    pcall(function()
+        local gc = getgc(true)
+        local BATCH = 100
+        local processed = 0
+        local dumpedRemotes = {}
+        for i, fn in ipairs(gc) do
+            if type(fn) == "function" then
+                pcall(function()
+                    -- constants
+                    if getconstants then
+                        local consts = getconstants(fn)
+                        if consts then
+                            local remoteName, invokeStyle
+                            for _, c in pairs(consts) do
+                                if type(c) == "string" then
+                                    if #c < 200 then
+                                        scanStringForSecrets(c, "GC:function#" .. i)
+                                    end
+                                    if c == "FireServer" or c == "InvokeServer" then
+                                        invokeStyle = c
+                                    elseif #c > 2 and #c < 60 and c:match("^[%w_]+$") then
+                                        -- Возможное имя remote
+                                        if invokeStyle then remoteName = c end
+                                    end
+                                    -- Ключевые слова
+                                    local lc = c:lower()
+                                    if #c < 100 and (lc:find("kick") or lc:find("ban") or lc:find("admin") or lc:find("execute") or lc:find("bypass") or lc:find("debug") or lc:find("owner") or lc:find("dev") or lc:find("password")) then
+                                        safeInsert(DeepData.DeepConstantDump, { value = c:sub(1, 150), src = "gc#" .. i })
+                                    end
+                                end
+                            end
+                            if remoteName and invokeStyle then
+                                safeInsert(DeepData.RemoteInvokers, { name = remoteName, method = invokeStyle, func_index = i })
+                            end
+                        end
+                    end
+                    -- upvalues
+                    if getupvalues then
+                        local ups = getupvalues(fn)
+                        if ups then
+                            for uk, uv in pairs(ups) do
+                                if typeof(uv) == "Instance" and (uv:IsA("RemoteEvent") or uv:IsA("RemoteFunction")) then
+                                    if not dumpedRemotes[uv] then
+                                        dumpedRemotes[uv] = true
+                                        safeInsert(DeepData.UpvalueRemotes, uv)
+                                        indexObject(uv)
+                                    end
+                                elseif type(uv) == "table" then
+                                    -- Ищем в таблице конфига remote-ссылки и admin-листы
+                                    pcall(function()
+                                        local tcnt = 0
+                                        for tk, tv in pairs(uv) do
+                                            tcnt = tcnt + 1
+                                            if tcnt > 40 then break end
+                                            if typeof(tv) == "Instance" and (tv:IsA("RemoteEvent") or tv:IsA("RemoteFunction")) then
+                                                if not dumpedRemotes[tv] then
+                                                    dumpedRemotes[tv] = true
+                                                    safeInsert(DeepData.UpvalueRemotes, tv)
+                                                    indexObject(tv)
+                                                end
+                                            elseif type(tv) == "string" then
+                                                local ltv = tv:lower()
+                                                if ltv:find("admin") or ltv:find("owner") or ltv:find("dev") then
+                                                    safeInsert(DeepData.AdminList, { name = tv, source = "gc-upvalue-table" })
+                                                end
+                                                if tv:match("^%d%d%d%d%d%d%d+$") then
+                                                    safeInsert(DeepData.AdminList, { userId = tv, source = "gc-upvalue-table" })
+                                                end
+                                            end
+                                        end
+                                    end)
+                                elseif type(uv) == "string" and #uv > 5 and #uv < 200 then
+                                    scanStringForSecrets(uv, "upvalue")
+                                end
+                            end
+                        end
+                    end
+                    -- protos: рекурсивный дамп внутренних функций
+                    if getprotos then
+                        local pr = getprotos(fn)
+                        if pr and #pr > 0 then
+                            for _, sub in ipairs(pr) do
+                                if getconstants then
+                                    local sc = getconstants(sub)
+                                    if sc then
+                                        for _, c in pairs(sc) do
+                                            if type(c) == "string" and #c < 200 then
+                                                scanStringForSecrets(c, "proto")
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            safeInsert(DeepData.ProtoScan, { func_index = i, proto_count = #pr })
+                        end
+                    end
+                end)
+                processed = processed + 1
+            elseif type(fn) == "table" then
+                -- Ищем _G-like таблицы с чит-ключами
+                pcall(function()
+                    local cnt = 0
+                    for k, v in pairs(fn) do
+                        cnt = cnt + 1
+                        if cnt > 30 then break end
+                        if type(k) == "string" and type(v) == "string" and #v < 500 then
+                            scanStringForSecrets(v, "gc-table[" .. k .. "]")
+                        end
+                    end
+                end)
+            end
+            if i % BATCH == 0 then task.wait() end
+            if i > 30000 then break end
+        end
+        DeepData.MegaScanStats.ClosuresProcessed = processed
+    end)
+end
+
+-- Дамп _G и shared
+local function dumpGlobals()
+    DeepData.GlobalTable = {}
+    pcall(function()
+        for k, v in pairs(_G) do
+            local vs
+            if typeof(v) == "Instance" then vs = "<Instance " .. v.ClassName .. ">"
+            elseif type(v) == "table" then vs = "<table>"
+            elseif type(v) == "function" then vs = "<function>"
+            else vs = tostring(v):sub(1, 200) end
+            DeepData.GlobalTable["_G." .. tostring(k)] = vs
+        end
+    end)
+    pcall(function()
+        if shared then
+            for k, v in pairs(shared) do
+                DeepData.GlobalTable["shared." .. tostring(k)] = tostring(v):sub(1, 200)
+            end
+        end
+    end)
+end
+
+-- Собираем инфу об игроке / leaderstats / командах
+local function dumpPlayerContext()
+    DeepData.LocalPlayerData = {}
+    DeepData.LeaderstatsSchema = {}
+    DeepData.TeamsInfo = {}
+    pcall(function()
+        for _, attr in ipairs({"UserId","AccountAge","MembershipType","DisplayName","LocaleId"}) do
+            DeepData.LocalPlayerData[attr] = tostring(lp[attr])
+        end
+        pcall(function()
+            for _, a in pairs(lp:GetAttributes()) do
+                DeepData.LocalPlayerData["attr:" .. tostring(a)] = tostring(a)
+            end
+        end)
+        local ls = lp:FindFirstChild("leaderstats")
+        if ls then
+            for _, v in ipairs(ls:GetChildren()) do
+                DeepData.LeaderstatsSchema[v.Name] = { class = v.ClassName, value = tostring(v.Value) }
+            end
+        end
+        for _, name in ipairs({"Data","PlayerData","Stats","PlayerStats","SaveData"}) do
+            local d = lp:FindFirstChild(name)
+            if d then
+                for _, v in ipairs(d:GetDescendants()) do
+                    if v:IsA("ValueBase") then
+                        DeepData.LeaderstatsSchema[name .. "/" .. v.Name] = { class = v.ClassName, value = tostring(v.Value) }
+                    end
+                end
+            end
+        end
+    end)
+    pcall(function()
+        local Teams = game:GetService("Teams")
+        for _, t in ipairs(Teams:GetTeams()) do
+            table.insert(DeepData.TeamsInfo, { name = t.Name, color = tostring(t.TeamColor), autoAssign = t.AutoAssignable })
+        end
+    end)
+end
+
+-- Сканим NetworkOwnership (кто владеет физикой чего = потенциальный експлойт)
+local function scanNetworkOwners()
+    DeepData.NetworkOwners = {}
+    pcall(function()
+        for _, obj in ipairs(ws:GetDescendants()) do
+            if obj:IsA("BasePart") and not obj.Anchored then
+                pcall(function()
+                    local owner = obj:GetNetworkOwner()
+                    if owner == lp then
+                        safeInsert(DeepData.NetworkOwners, { path = obj:GetFullName(), owner = "LocalPlayer(YOU)" })
+                    elseif owner == nil then
+                        -- server owned
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- Vulnerability heuristics: RemoteEvent без OnServerEvent connections = мертвый / бэкдор?
+local function scanRemoteConnectionCount()
+    if not getconnections then return end
+    DeepData.RemoteConnections = {}
+    local all = {}
+    for _, cat in ipairs({"MoneyRemotes","AdminRemotes","GodRemotes","ExecuteRemotes","KillRemotes","DeleteRemotes","BossRemotes"}) do
+        for _, r in ipairs(DeepData[cat] or {}) do
+            all[r] = true
+        end
+    end
+    for r, _ in pairs(all) do
+        pcall(function()
+            local conns
+            if r:IsA("RemoteEvent") then
+                conns = getconnections(r.OnClientEvent)
+            end
+            local c = conns and #conns or 0
+            DeepData.RemoteConnections[r:GetFullName()] = c
+        end)
+    end
+end
+
+-- Bindable events / functions собираем отдельно (часто дублируют серверную логику клиенту)
+local function scanBindables()
+    for _, root in ipairs({ws, rep, game:GetService("StarterPlayer"), game:GetService("StarterGui")}) do
+        pcall(function()
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("BindableEvent") then safeInsert(DeepData.BindableEvents, d)
+                elseif d:IsA("BindableFunction") then safeInsert(DeepData.BindableFunctions, d) end
+            end
+        end)
+    end
+end
+
 local function buildExploitList()
     DeepData.ExploitList = {}
     local seen = {}
@@ -617,12 +1107,24 @@ local function runFullAnalysis(force)
     scanGarbageCollector()
     scanUpvalues()
     if Settings.DeepAccess then scanNilParents() end
-    task.wait(1)
+    -- v3 MEGA DEEP passes
+    scanAllInstances()
+    scanBindables()
+    scanLoadedModules()
+    task.wait(0.3)
+    megaDumpClosures()
+    task.wait(0.3)
+    scanAllScripts()
+    dumpGlobals()
+    dumpPlayerContext()
+    scanNetworkOwners()
+    scanRemoteConnectionCount()
+    task.wait(0.5)
     attemptDecompile()
     buildExploitList()
     DeepData.ScanTime = tick() - now
     warn("╔═════════════════════════════════════════════╗")
-    warn("║ 🔬 GAME ANALYZER v2 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
+    warn("║ 🔬 GAME ANALYZER v3 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
     warn("║ 🎮 " .. tostring(DeepData.GameName) .. " (place=" .. tostring(DeepData.PlaceId) .. ")")
     warn("╠═════════════════════════════════════════════╣")
     warn(string.format("║ 🚪 Total exploits: %d", #DeepData.ExploitList))
@@ -636,6 +1138,17 @@ local function runFullAnalysis(force)
     warn(string.format("║ 🕵️ Decompiled: %d  🔒 Protected: %d",
         (function() local c=0; for _ in pairs(DeepData.DecompiledScripts) do c=c+1 end; return c end)(),
         #DeepData.ProtectedInstances))
+    warn(string.format("║ 🧬 AllInst:%d  🕳️ NilInst:%d  📦 Modules:%d",
+        #DeepData.AllInstances, #DeepData.NilInstances, #DeepData.LoadedModules))
+    warn(string.format("║ 📜 AllSrc:%d  🌀 Obfusc:%d  🎭 Actors:%d",
+        (function() local c=0; for _ in pairs(DeepData.AllScriptSources) do c=c+1 end; return c end)(),
+        #DeepData.ObfuscatedScriptSources, #DeepData.ActorScripts))
+    warn(string.format("║ 🔑 Keys:%d  🌐 URLs:%d  📡 Webhooks:%d",
+        #DeepData.DiscoveredKeys, #DeepData.DiscoveredURLs, #DeepData.DiscoveredWebhooks))
+    warn(string.format("║ 🔐 Passwd:%d  🎫 Tokens:%d  🏷️ IDs:%d",
+        #DeepData.DiscoveredPasswords, #DeepData.DiscoveredTokens, #DeepData.DiscoveredIDs))
+    warn(string.format("║ 👥 AdminList:%d  🔗 BindEv:%d  🌍 NetOwn:%d",
+        #DeepData.AdminList, #DeepData.BindableEvents, #DeepData.NetworkOwners))
     warn("╚═════════════════════════════════════════════╝")
 end
 ws.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
@@ -776,46 +1289,304 @@ local function exploitToReadableInfo(exp)
 end
 local function fullReportToString()
     local out = {}
-    table.insert(out, "╔═════════════════════════════════════════════╗")
-    table.insert(out, "║ 🔬 GAME ANALYZER v2 — FULL REPORT           ║")
-    table.insert(out, "║ Scan #" .. DeepData.ScanCount .. " | " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
-    table.insert(out, "║ 🎮 " .. tostring(DeepData.GameName))
-    table.insert(out, "║ GameId=" .. DeepData.GameId .. " | PlaceId=" .. DeepData.PlaceId)
-    table.insert(out, "║ 🎭 AntiCheat: " .. DeepData.AnticheatType)
-    table.insert(out, "╠═════════════════════════════════════════════╣")
-    table.insert(out, "\n=== ALL EXPLOITS BY CATEGORY ===\n")
+    local function w(s) table.insert(out, s or "") end
+    local function sec(title) w(""); w("╔══════════════════════════════════════════════════════════════╗"); w("║ " .. title); w("╚══════════════════════════════════════════════════════════════╝") end
+
+    w("╔══════════════════════════════════════════════════════════════╗")
+    w("║ 🔬 GAME ANALYZER v3.0 MEGA DEEP — FULL REPORT")
+    w("║ Scan #" .. DeepData.ScanCount .. " | ScanTime: " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
+    w("║ 🎮 Game: " .. tostring(DeepData.GameName))
+    w("║ GameId=" .. tostring(DeepData.GameId) .. " | PlaceId=" .. tostring(DeepData.PlaceId))
+    w("║ 🎭 AntiCheat: " .. tostring(DeepData.AnticheatType))
+    w("║ 👤 Player: " .. lp.Name .. " (UserId=" .. tostring(lp.UserId) .. ")")
+    w("║ 🛠️ Executor: " .. tostring((_identify and _identify()) or "unknown"))
+    w("╚══════════════════════════════════════════════════════════════╝")
+
+    -- ============ MEGA STATS ============
+    sec("📊 MEGA DEEP SCAN STATISTICS")
+    w("Total Instances Scanned: " .. #DeepData.AllInstances)
+    w("Nil-Parent Instances: " .. #DeepData.NilInstances)
+    w("Loaded ModuleScripts: " .. #DeepData.LoadedModules)
+    w("Total Exploits Found: " .. #DeepData.ExploitList)
+    w("Money Remotes: " .. #DeepData.MoneyRemotes)
+    w("Admin Remotes: " .. #DeepData.AdminRemotes)
+    w("God Remotes: " .. #DeepData.GodRemotes)
+    w("Execute (RCE) Remotes: " .. #DeepData.ExecuteRemotes)
+    w("Delete/Kick Remotes: " .. (#DeepData.DeleteRemotes + #DeepData.KillRemotes))
+    w("GC-discovered Remotes: " .. #DeepData.GCRemotesFound)
+    w("Upvalue-discovered Remotes: " .. #DeepData.UpvalueRemotes)
+    w("Protected Storage Items: " .. #DeepData.ProtectedInstances)
+    w("Obfuscated Scripts: " .. #DeepData.ObfuscatedScriptSources)
+    w("Actor-parented Scripts: " .. #DeepData.ActorScripts)
+    w("Client RunContext Scripts: " .. #DeepData.ClientContextScripts)
+    w("BindableEvents: " .. #DeepData.BindableEvents)
+    w("BindableFunctions: " .. #DeepData.BindableFunctions)
+    w("Local Network-owned Parts: " .. #DeepData.NetworkOwners)
+    w("Discovered Secrets: keys=" .. #DeepData.DiscoveredKeys ..
+        " urls=" .. #DeepData.DiscoveredURLs ..
+        " webhooks=" .. #DeepData.DiscoveredWebhooks ..
+        " passwds=" .. #DeepData.DiscoveredPasswords ..
+        " tokens=" .. #DeepData.DiscoveredTokens ..
+        " ids=" .. #DeepData.DiscoveredIDs ..
+        " hashes=" .. #DeepData.DiscoveredHashes)
+    w("Admin Names Found: " .. #DeepData.AdminList)
+    w("Closures Processed: " .. tostring(DeepData.MegaScanStats.ClosuresProcessed or 0))
+
+    -- ============ PLAYER CONTEXT ============
+    sec("👤 LOCAL PLAYER CONTEXT")
+    for k, v in pairs(DeepData.LocalPlayerData) do w("  " .. k .. " = " .. tostring(v)) end
+    if next(DeepData.LeaderstatsSchema) then
+        w("")
+        w("[LeaderStats / Player Data Schema]")
+        for k, v in pairs(DeepData.LeaderstatsSchema) do
+            w("  " .. k .. " :: " .. v.class .. " = " .. tostring(v.value))
+        end
+    end
+    if #DeepData.TeamsInfo > 0 then
+        w("")
+        w("[Teams]")
+        for _, t in ipairs(DeepData.TeamsInfo) do
+            w("  " .. t.name .. " color=" .. t.color .. " auto=" .. tostring(t.autoAssign))
+        end
+    end
+
+    -- ============ SECRETS ============
+    sec("🔐 SECRETS / SENSITIVE STRINGS EXTRACTED FROM CODE")
+    local function dumpSecrets(list, label)
+        if #list == 0 then return end
+        w("")
+        w("── " .. label .. " (" .. #list .. ") ──")
+        for i, e in ipairs(list) do
+            if i > 30 then w("  ... +" .. (#list - 30) .. " more"); break end
+            w("  [" .. tostring(e.type or "?") .. "] " .. tostring(e.value or e.id or e.name) .. "   ← " .. tostring(e.source or "?"))
+        end
+    end
+    dumpSecrets(DeepData.DiscoveredWebhooks, "🔥 DISCORD WEBHOOKS")
+    dumpSecrets(DeepData.DiscoveredPasswords, "🔐 PASSWORDS")
+    dumpSecrets(DeepData.DiscoveredTokens, "🎫 TOKENS / BEARER")
+    dumpSecrets(DeepData.DiscoveredKeys, "🔑 API KEYS / SECRETS")
+    dumpSecrets(DeepData.DiscoveredURLs, "🌐 URLs")
+    dumpSecrets(DeepData.DiscoveredIDs, "🏷️ Product/Gamepass IDs")
+    dumpSecrets(DeepData.AssetIDs, "🎨 Asset ID candidates (12+ digits)")
+    dumpSecrets(DeepData.DiscoveredHashes, "#️⃣ Hash-like strings")
+
+    -- ============ ADMIN LIST ============
+    if #DeepData.AdminList > 0 then
+        sec("👑 ADMIN / OWNER LIST (extracted from closures)")
+        for i, a in ipairs(DeepData.AdminList) do
+            if i > 50 then w("  ... +" .. (#DeepData.AdminList - 50) .. " more"); break end
+            w("  " .. tostring(a.name or a.userId) .. "   ← " .. tostring(a.source))
+        end
+    end
+
+    -- ============ TOP EXPLOITS with FULL DETAIL ============
+    sec("🚪 ALL EXPLOITS — FULL DETAIL WITH READY-TO-USE CODE")
     local byCat = {}
     for _, exp in ipairs(DeepData.ExploitList) do
         byCat[exp.category] = byCat[exp.category] or {}
         table.insert(byCat[exp.category], exp)
     end
-    for cat, list in pairs(byCat) do
-        table.insert(out, "\n--- " .. cat:upper() .. " (" .. #list .. ") ---")
+    local sortedCats = {}
+    for c in pairs(byCat) do table.insert(sortedCats, c) end
+    table.sort(sortedCats)
+    for _, cat in ipairs(sortedCats) do
+        local list = byCat[cat]
+        w("")
+        w("═════ CATEGORY: " .. cat:upper() .. " (" .. #list .. ") ═════")
         for i, exp in ipairs(list) do
-            if i > 5 then table.insert(out, "  ... +" .. (#list - 5) .. " more"); break end
-            table.insert(out, "  " .. exp.effectIcon .. " [" .. exp.risk .. "] " .. exp.name)
-            table.insert(out, "    Path: " .. exp.path)
+            if i > 15 then w("  ... +" .. (#list - 15) .. " more in this category"); break end
+            w("")
+            w("  " .. exp.effectIcon .. " [" .. exp.risk .. " | score=" .. tostring(exp.score) .. "] " .. exp.name .. " (" .. exp.class .. ")")
+            w("    Path: " .. exp.path)
+            w("    Effect: " .. exp.effect)
+            local ccount = DeepData.RemoteConnections[exp.path]
+            if ccount then w("    Client connections: " .. ccount) end
+            for k, args in ipairs(exp.suggestedArgs or {}) do
+                if k > 3 then break end
+                w("    args[" .. k .. "]: " .. argsToString(args))
+            end
+            local key = exp.remote and exp.remote:GetFullName()
+            if key and DeepData.CallSignatures[key] then
+                local sig = DeepData.CallSignatures[key]
+                w("    🕵️ REAL CALLS RECORDED: " .. sig.count)
+                for k, args in ipairs(sig.samples) do
+                    if k > 2 then break end
+                    w("      [live] " .. argsToString(args))
+                end
+            end
+            -- Готовый снипет
+            local method = exp.class == "RemoteEvent" and "FireServer" or "InvokeServer"
+            w("    💡 SNIPPET:")
+            w('      local r = game:GetService("' .. (exp.path:match("^([^%.]+)") or "ReplicatedStorage") .. '")')
+            w('      -- full path: ' .. exp.path)
+            local firstArgs = (exp.suggestedArgs and exp.suggestedArgs[1]) and argsToString(exp.suggestedArgs[1]):sub(2,-2) or ""
+            w('      r:' .. method .. '(' .. firstArgs .. ')')
         end
     end
-    table.insert(out, "\n=== SPIED CALLS (last 20) ===")
+
+    -- ============ SPY LOG ============
+    sec("🕵️ REMOTE SPY LOG (last " .. math.min(50, #DeepData.SpiedCalls) .. " calls)")
     for i, call in ipairs(DeepData.SpiedCalls) do
-        if i > 20 then break end
-        table.insert(out, "  " .. call.method .. " → " .. call.path)
-        table.insert(out, "    args: " .. argsToString(call.args))
+        if i > 50 then break end
+        w("  " .. call.method .. " → " .. call.path)
+        w("    args: " .. argsToString(call.args))
     end
-    table.insert(out, "\n=== PROTECTED INSTANCES ===")
-    for _, pi in ipairs(DeepData.ProtectedInstances) do
-        table.insert(out, "  [" .. pi.service .. "] " .. pi.class .. ": " .. pi.path)
+    w("")
+    w("[Call Signatures Summary]")
+    local sigcnt = 0
+    for path, sig in pairs(DeepData.CallSignatures) do
+        sigcnt = sigcnt + 1
+        if sigcnt > 30 then w("  ... +more"); break end
+        w("  " .. path .. " called " .. sig.count .. " times")
     end
-    table.insert(out, "\n=== DECOMPILED SCRIPTS (top 3) ===")
+
+    -- ============ PROTECTED / HIDDEN INSTANCES ============
+    sec("🔒 PROTECTED INSTANCES (ServerStorage/ReplicatedFirst/SSS)")
+    for i, pi in ipairs(DeepData.ProtectedInstances) do
+        if i > 100 then w("  ... +" .. (#DeepData.ProtectedInstances - 100) .. " more"); break end
+        w("  [" .. pi.service .. "] " .. pi.class .. ": " .. pi.path)
+    end
+
+    sec("🕳️ NIL-PARENT INSTANCES (hidden from Explorer)")
+    for i, o in ipairs(DeepData.NilParentObjects) do
+        if i > 50 then w("  ... +more"); break end
+        pcall(function() w("  " .. o.ClassName .. ": " .. o.Name) end)
+    end
+
+    -- ============ MODULE RETURNS ============
+    sec("📦 LOADED MODULE RETURN VALUES (require dumps)")
+    local mrcnt = 0
+    for path, dump in pairs(DeepData.ModuleReturns) do
+        mrcnt = mrcnt + 1
+        if mrcnt > 15 then w(""); w("  ... +more modules"); break end
+        w("")
+        w("── " .. path .. " ──")
+        for k, v in pairs(dump) do
+            w("    " .. k .. " = " .. tostring(v))
+        end
+    end
+
+    -- ============ OBFUSCATED SCRIPTS ============
+    if #DeepData.ObfuscatedScriptSources > 0 then
+        sec("🌀 OBFUSCATED SCRIPTS DETECTED")
+        for _, o in ipairs(DeepData.ObfuscatedScriptSources) do
+            w("  density=" .. o.density .. " :: " .. o.path)
+        end
+    end
+
+    -- ============ FULL DECOMPILED SOURCE ============
+    sec("📜 DECOMPILED SCRIPT SOURCES (real game code)")
     local dc = 0
-    for path, src in pairs(DeepData.DecompiledScripts) do
+    for path, src in pairs(DeepData.AllScriptSources) do
         dc = dc + 1
-        if dc > 3 then break end
-        table.insert(out, "\n--- " .. path .. " ---")
-        table.insert(out, src:sub(1, 400))
+        if dc > 15 then w(""); w("  ... +" .. ((function() local c=0 for _ in pairs(DeepData.AllScriptSources) do c=c+1 end return c end)() - 15) .. " more scripts (increase limit / use per-script copy)"); break end
+        w("")
+        w("╭─── SCRIPT #" .. dc .. ": " .. path .. " ───")
+        w(src)
+        w("╰─── END SCRIPT #" .. dc .. " ───")
     end
+    -- Anticheat scripts тоже
+    w("")
+    w("── ANTICHEAT / SUSPICIOUS decompiled ──")
+    for path, src in pairs(DeepData.DecompiledScripts) do
+        w("")
+        w("╭─── AC: " .. path .. " ───")
+        w(src)
+        w("╰───")
+    end
+
+    -- ============ GLOBALS ============
+    if next(DeepData.GlobalTable) then
+        sec("🌐 GLOBALS (_G + shared)")
+        for k, v in pairs(DeepData.GlobalTable) do w("  " .. k .. " = " .. tostring(v)) end
+    end
+
+    -- ============ NETWORK OWNERS ============
+    if #DeepData.NetworkOwners > 0 then
+        sec("🌍 LOCAL-OWNED PARTS (you can teleport/velocity these freely)")
+        for i, o in ipairs(DeepData.NetworkOwners) do
+            if i > 40 then w("  ... +more"); break end
+            w("  " .. o.path)
+        end
+    end
+
+    -- ============ BINDABLES ============
+    if #DeepData.BindableEvents > 0 or #DeepData.BindableFunctions > 0 then
+        sec("🔗 BINDABLES (client-side event/function; sometimes bridged to server)")
+        for i, b in ipairs(DeepData.BindableEvents) do
+            if i > 30 then break end
+            w("  [Event] " .. b:GetFullName())
+        end
+        for i, b in ipairs(DeepData.BindableFunctions) do
+            if i > 30 then break end
+            w("  [Func]  " .. b:GetFullName())
+        end
+    end
+
+    -- ============ INVOKER MAP ============
+    if #DeepData.RemoteInvokers > 0 then
+        sec("📡 REMOTE INVOKER MAP (constants pointing to Fire/Invoke calls)")
+        for i, r in ipairs(DeepData.RemoteInvokers) do
+            if i > 60 then break end
+            w("  " .. r.method .. " '" .. r.name .. "'  (found in gc#" .. r.func_index .. ")")
+        end
+    end
+
+    -- ============ ANALYST NOTE ============
+    sec("🧠 ANALYSIS SUMMARY (for LLM/human review)")
+    w("Recommended immediate targets, ranked by score:")
+    for i = 1, math.min(15, #DeepData.ExploitList) do
+        local e = DeepData.ExploitList[i]
+        w("  " .. i .. ". " .. e.effectIcon .. " [" .. e.risk .. "|" .. e.score .. "] " .. e.name .. " → " .. e.path)
+    end
+    w("")
+    w("Send this whole report to your LLM. It contains:")
+    w(" - Full remote inventory with categories, scores, real call samples")
+    w(" - Decompiled source of client scripts and anticheat")
+    w(" - Extracted secrets (webhooks/keys/passwords/admin lists)")
+    w(" - Player context + leaderstats schema")
+    w(" - Hidden/nil-parent instances")
+    w(" - Module return dumps (config tables)")
+    w(" - Network ownership map")
+    w("")
+    w("╔══════════════════════════════════════════════════════════════╗")
+    w("║ END OF REPORT — GameAnalyzer v3.0 MEGA DEEP")
+    w("║ Total size: " .. tostring(math.floor((#table.concat(out, "\n"))/1024)) .. " KB")
+    w("╚══════════════════════════════════════════════════════════════╝")
     return table.concat(out, "\n")
+end
+
+-- Разбивает большой отчёт на куски ~15KB чтобы влезло в буфер Discord/чата LLM
+local function chunkReport(report, chunkSize)
+    chunkSize = chunkSize or 15000
+    local chunks = {}
+    local total = #report
+    local pos = 1
+    while pos <= total do
+        local endPos = math.min(pos + chunkSize - 1, total)
+        -- Ищем ближайший \n назад чтобы не резать по середине строки
+        if endPos < total then
+            local ln = report:sub(pos, endPos):match(".*()\n")
+            if ln then endPos = pos + ln - 2 end
+        end
+        table.insert(chunks, report:sub(pos, endPos))
+        pos = endPos + 1
+    end
+    for i, c in ipairs(chunks) do
+        chunks[i] = "═══ PART " .. i .. "/" .. #chunks .. " ═══\n" .. c
+    end
+    return chunks
+end
+
+local function rebuildReportChunks()
+    local report = fullReportToString()
+    DeepData.ReportChunks = chunkReport(report, 15000)
+    DeepData.ReportChunkIndex = 1
+    -- Пробуем сохранить полный отчёт файлом на диск через executor
+    if writefile then
+        pcall(function() writefile("GameAnalyzer_Report.txt", report) end)
+    end
+    return report
 end
 local AK = { active = false, installed = false, hooks = {}, blocked = 0, layers = 0 }
 local BAN_KW = {"kick","ban","anticheat","ac_","punish","report","detect","suspend","moderat","admin","exploit","hack","cheat","suspicious","violation","flag","warn"}
@@ -1011,7 +1782,7 @@ makeCorner(mf, 10)
 newInst("UIStroke", { Color = Color3.fromRGB(80, 80, 100), Thickness = 2, Transparency = 0.3 }, mf)
 local title = newInst("TextLabel", {
     Size = UDim2.new(1, -70, 0, 32),
-    Text = "  🔬 GAME ANALYZER v2.0",
+    Text = "  🔬 GAME ANALYZER v3.0",
     TextColor3 = Color3.fromRGB(150, 220, 255),
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -1478,14 +2249,44 @@ scanBtn.MouseButton1Click:Connect(function()
     end)
 end)
 exportBtn.MouseButton1Click:Connect(function()
-    exportBtn.Text = "📋 EXPORTING..."
+    exportBtn.Text = "📋 BUILDING..."
     task.spawn(function()
-        local report = fullReportToString()
-        copyToClipboard(report)
-        _origPrint("\n════ FULL REPORT ════\n" .. report)
-        exportBtn.Text = "✅ COPIED " .. math.floor(#report/1024) .. "KB"
-        task.wait(3); exportBtn.Text = "📋 EXPORT"
+        local report = rebuildReportChunks()
+        local n = #DeepData.ReportChunks
+        -- Копируем первый кусок сразу, следующие через повторные клики
+        if n > 0 then
+            copyToClipboard(DeepData.ReportChunks[1])
+            DeepData.ReportChunkIndex = 2
+        end
+        _origPrint("\n════ FULL REPORT (" .. math.floor(#report/1024) .. "KB, " .. n .. " parts) ════\n" .. report)
+        if writefile then
+            exportBtn.Text = "✅ 1/" .. n .. " → file+clip"
+        else
+            exportBtn.Text = "✅ COPIED 1/" .. n .. " (click for next)"
+        end
+        task.wait(4)
+        if DeepData.ReportChunkIndex > n then
+            exportBtn.Text = "📋 EXPORT"
+        else
+            exportBtn.Text = "📤 NEXT " .. DeepData.ReportChunkIndex .. "/" .. n
+        end
     end)
+end)
+-- Дополнительная кнопка: правый клик или повторный клик → следующий кусок
+exportBtn.MouseButton2Click:Connect(function()
+    local n = #DeepData.ReportChunks
+    if n == 0 then exportBtn.Text = "⚠️ EXPORT FIRST"; task.wait(2); exportBtn.Text = "📋 EXPORT"; return end
+    local idx = DeepData.ReportChunkIndex
+    if idx > n then idx = 1 end
+    copyToClipboard(DeepData.ReportChunks[idx])
+    exportBtn.Text = "✅ " .. idx .. "/" .. n .. " copied"
+    DeepData.ReportChunkIndex = idx + 1
+    task.wait(3)
+    if DeepData.ReportChunkIndex > n then
+        exportBtn.Text = "📋 DONE (RMB=restart)"
+    else
+        exportBtn.Text = "📤 NEXT " .. DeepData.ReportChunkIndex .. "/" .. n
+    end
 end)
 execAllBtn.MouseButton1Click:Connect(function()
     execAllBtn.Text = "🔥 FIRING..."
@@ -1531,4 +2332,8 @@ local function unloadAll()
 end
 _G.GameAnalyzerPro.Unload = unloadAll
 unloadBtn.MouseButton1Click:Connect(unloadAll)
-warn("[GameAnalyzer v2.0] ✅ Загружен! Нажми SCAN → потом EXPORT для копирования отчёта")
+warn("[GameAnalyzer v3.0 MEGA DEEP] ✅ Загружен!")
+warn("[v3] 🔄 SCAN — глубокий анализ (getinstances/getnilinstances/getloadedmodules/require дампы/decompile всех LocalScript'ов)")
+warn("[v3] 📋 EXPORT — левый клик: 1-я часть отчёта в буфер + файл GameAnalyzer_Report.txt")
+warn("[v3] 📤 EXPORT — правый клик: следующая часть отчёта (для длинных дампов)")
+warn("[v3] Отчёт содержит реальный код игры + все секреты (webhooks/keys/passwords/admin lists)")
