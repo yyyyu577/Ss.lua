@@ -1,4 +1,4 @@
-warn("[GameAnalyzer v4.0 MEGA DEEP+ ULTRA] === СКРИПТ ЗАПУЩЕН ===")
+warn("[GameAnalyzer v5.0 TOTAL EXTRACTION] === СКРИПТ ЗАПУЩЕН ===")
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
 end
@@ -132,6 +132,11 @@ local DeepData = {
     NetworkOwners = {}, TeamsInfo = {},
     ReportChunks = {}, ReportChunkIndex = 1,
     MegaScanStats = {},
+    -- v5 TOTAL EXTRACTION
+    FullGameTree = {}, InstanceClassStats = {},
+    ScriptCandidateCount = 0, TotalScriptBytes = 0,
+    RegistryScan = {}, ConnectionScan = {},
+    PlayerGuiFullDump = {}, AllServicesScan = {},
 }
 local connections = {}
 local _origWarn = warn
@@ -570,7 +575,7 @@ local function attemptDecompile()
             pcall(function()
                 local src = decompile(s)
                 if src and type(src) == "string" and #src > 20 then
-                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 1500)
+                    DeepData.DecompiledScripts[s:GetFullName()] = src -- v5: FULL, без обрезки
                 end
             end)
         end
@@ -578,7 +583,7 @@ local function attemptDecompile()
             pcall(function()
                 local src = decompile(s)
                 if src and type(src) == "string" and #src > 20 then
-                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 1500)
+                    DeepData.DecompiledScripts[s:GetFullName()] = src -- v5: FULL
                 end
             end)
         end
@@ -784,10 +789,11 @@ local function scanAllScripts()
                     safeInsert(DeepData.ClientContextScripts, s)
                 end
             end)
-            if decompiled < 60 then
+            -- v5: НИКАКИХ лимитов — decompile ВСЕ скрипты, полный код без обрезки
+            do
                 local ok, src = pcall(decompile, s)
                 if ok and type(src) == "string" and #src > 20 then
-                    DeepData.AllScriptSources[s:GetFullName()] = src:sub(1, 8000)
+                    DeepData.AllScriptSources[s:GetFullName()] = src -- FULL SOURCE
                     decompiled = decompiled + 1
                     scanStringForSecrets(src, s:GetFullName())
                     -- Обфусцированный источник?
@@ -801,7 +807,7 @@ local function scanAllScripts()
             end
         end)
         if i % 10 == 0 then task.wait() end
-        if i > 500 then break end
+        if i > 3000 then break end -- v5: подняли лимит с 500 до 3000
     end
 end
 
@@ -962,8 +968,8 @@ local function dumpPlayerContext()
             DeepData.LocalPlayerData[attr] = tostring(lp[attr])
         end
         pcall(function()
-            for _, a in pairs(lp:GetAttributes()) do
-                DeepData.LocalPlayerData["attr:" .. tostring(a)] = tostring(a)
+            for aname, aval in pairs(lp:GetAttributes()) do
+                DeepData.LocalPlayerData["attr:" .. tostring(aname)] = tostring(aval) .. "  (type=" .. typeof(aval) .. ")"
             end
         end)
         local ls = lp:FindFirstChild("leaderstats")
@@ -1291,6 +1297,348 @@ local function scanPlayerGuis()
     end)
 end
 
+-- ═══════════════════════════════════════════════════════════
+-- v5 TOTAL EXTRACTION: вырываем всю структуру игры целиком
+-- ═══════════════════════════════════════════════════════════
+
+-- Полное дерево игры: каждый Instance + его класс + путь
+local function extractFullGameStructure()
+    DeepData.FullGameTree = {}
+    DeepData.InstanceClassStats = {}
+    local roots = {
+        game:GetService("Workspace"),
+        game:GetService("ReplicatedStorage"),
+        game:GetService("ReplicatedFirst"),
+        game:GetService("StarterGui"),
+        game:GetService("StarterPack"),
+        game:GetService("StarterPlayer"),
+        game:GetService("Lighting"),
+        game:GetService("MaterialService"),
+        game:GetService("SoundService"),
+        game:GetService("Chat"),
+        game:GetService("Teams"),
+    }
+    pcall(function() table.insert(roots, game:GetService("ServerStorage")) end)
+    pcall(function() table.insert(roots, game:GetService("ServerScriptService")) end)
+
+    for _, root in ipairs(roots) do
+        pcall(function()
+            table.insert(DeepData.FullGameTree, {
+                path = root:GetFullName(), class = root.ClassName, isRoot = true
+            })
+            for _, d in ipairs(root:GetDescendants()) do
+                pcall(function()
+                    local entry = {
+                        path = d:GetFullName(),
+                        class = d.ClassName,
+                        name = d.Name,
+                    }
+                    -- Ключевые свойства
+                    if d:IsA("BasePart") then
+                        pcall(function()
+                            entry.pos = tostring(d.Position)
+                            entry.size = tostring(d.Size)
+                            entry.anchored = d.Anchored
+                            entry.canCollide = d.CanCollide
+                            entry.transparency = d.Transparency
+                            entry.material = tostring(d.Material)
+                        end)
+                    elseif d:IsA("ValueBase") then
+                        pcall(function() entry.value = tostring(d.Value) end)
+                    elseif d:IsA("Sound") then
+                        pcall(function() entry.soundId = d.SoundId; entry.volume = d.Volume end)
+                    elseif d:IsA("Decal") or d:IsA("Texture") then
+                        pcall(function() entry.textureId = d.Texture end)
+                    elseif d:IsA("ImageLabel") or d:IsA("ImageButton") then
+                        pcall(function() entry.image = d.Image end)
+                    elseif d:IsA("MeshPart") then
+                        pcall(function() entry.meshId = d.MeshId; entry.textureId = d.TextureID end)
+                    elseif d:IsA("SpecialMesh") then
+                        pcall(function() entry.meshId = d.MeshId; entry.textureId = d.TextureId end)
+                    elseif d:IsA("Animation") then
+                        pcall(function() entry.animationId = d.AnimationId end)
+                    elseif d:IsA("Humanoid") then
+                        pcall(function()
+                            entry.health = d.Health; entry.maxHealth = d.MaxHealth
+                            entry.walkSpeed = d.WalkSpeed; entry.jumpPower = d.JumpPower
+                        end)
+                    elseif d:IsA("Tool") then
+                        pcall(function() entry.grip = tostring(d.Grip); entry.canBeDropped = d.CanBeDropped end)
+                    elseif d:IsA("ProximityPrompt") then
+                        pcall(function()
+                            entry.actionText = d.ActionText; entry.objectText = d.ObjectText
+                            entry.holdDuration = d.HoldDuration; entry.enabled = d.Enabled
+                        end)
+                    elseif d:IsA("ClickDetector") then
+                        pcall(function() entry.maxDistance = d.MaxActivationDistance end)
+                    end
+                    -- Attributes
+                    pcall(function()
+                        local a = d:GetAttributes()
+                        if next(a) then
+                            entry.attrs = {}
+                            for k, v in pairs(a) do entry.attrs[tostring(k)] = tostring(v) .. "(" .. typeof(v) .. ")" end
+                        end
+                    end)
+                    -- Tags
+                    pcall(function()
+                        local t = CS:GetTags(d)
+                        if #t > 0 then entry.tags = table.concat(t, ",") end
+                    end)
+                    table.insert(DeepData.FullGameTree, entry)
+                    DeepData.InstanceClassStats[d.ClassName] = (DeepData.InstanceClassStats[d.ClassName] or 0) + 1
+                end)
+            end
+        end)
+    end
+    -- + Players и их Backpack/PlayerGui/Character
+    for _, p in ipairs(plrs:GetPlayers()) do
+        pcall(function()
+            for _, d in ipairs(p:GetDescendants()) do
+                pcall(function()
+                    table.insert(DeepData.FullGameTree, { path = d:GetFullName(), class = d.ClassName, name = d.Name })
+                    DeepData.InstanceClassStats[d.ClassName] = (DeepData.InstanceClassStats[d.ClassName] or 0) + 1
+                end)
+            end
+        end)
+    end
+end
+
+-- ВСЕ скрипты в игре — без исключений. Пытаемся decompile КАЖДЫЙ, полный код.
+local function scanEverySingleScript()
+    if not decompile then return end
+    DeepData.AllScriptSources = DeepData.AllScriptSources or {}
+    local candidates = {}
+    local seen = {}
+
+    -- Собираем отовсюду
+    local roots = { ws, rep,
+        game:GetService("ReplicatedFirst"),
+        game:GetService("StarterGui"),
+        game:GetService("StarterPack"),
+        game:GetService("StarterPlayer"),
+        game:GetService("Chat"),
+        game:GetService("SoundService"),
+    }
+    pcall(function() table.insert(roots, game:GetService("ServerStorage")) end)
+    pcall(function() table.insert(roots, game:GetService("ServerScriptService")) end)
+
+    for _, r in ipairs(roots) do
+        pcall(function()
+            for _, d in ipairs(r:GetDescendants()) do
+                if (d:IsA("LocalScript") or d:IsA("Script") or d:IsA("ModuleScript")) and not seen[d] then
+                    seen[d] = true; table.insert(candidates, d)
+                end
+            end
+        end)
+    end
+    -- Players PlayerScripts / PlayerGui содержат клиентские скрипты
+    for _, p in ipairs(plrs:GetPlayers()) do
+        pcall(function()
+            for _, d in ipairs(p:GetDescendants()) do
+                if (d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Script")) and not seen[d] then
+                    seen[d] = true; table.insert(candidates, d)
+                end
+            end
+        end)
+    end
+    -- executor API если есть
+    if getscripts then
+        pcall(function() for _, s in ipairs(getscripts()) do
+            if not seen[s] then seen[s] = true; table.insert(candidates, s) end
+        end end)
+    end
+    if getloadedmodules then
+        pcall(function() for _, s in ipairs(getloadedmodules()) do
+            if not seen[s] then seen[s] = true; table.insert(candidates, s) end
+        end end)
+    end
+    if getrunningscripts then
+        pcall(function() for _, s in ipairs(getrunningscripts()) do
+            if not seen[s] then seen[s] = true; table.insert(candidates, s) end
+        end end)
+    end
+    if getnilinstances then
+        pcall(function() for _, s in ipairs(getnilinstances()) do
+            if typeof(s) == "Instance" and (s:IsA("LocalScript") or s:IsA("ModuleScript") or s:IsA("Script")) and not seen[s] then
+                seen[s] = true; table.insert(candidates, s)
+            end
+        end end)
+    end
+
+    DeepData.ScriptCandidateCount = #candidates
+    local totalBytes = 0
+    for i, s in ipairs(candidates) do
+        pcall(function()
+            local key = s:GetFullName()
+            -- пропускаем если уже декомпилен
+            if DeepData.AllScriptSources[key] and #DeepData.AllScriptSources[key] > 100 then return end
+            local ok, src = pcall(decompile, s)
+            if ok and type(src) == "string" and #src > 5 then
+                DeepData.AllScriptSources[key] = src
+                totalBytes = totalBytes + #src
+                scanStringForSecrets(src, key)
+            else
+                -- Fallback — вытаскиваем через .Source (у executor'ов бывает доступ)
+                pcall(function()
+                    local sc = s.Source
+                    if type(sc) == "string" and #sc > 5 then
+                        DeepData.AllScriptSources[key] = sc
+                        totalBytes = totalBytes + #sc
+                        scanStringForSecrets(sc, key)
+                    end
+                end)
+            end
+        end)
+        if i % 10 == 0 then task.wait() end
+    end
+    DeepData.TotalScriptBytes = totalBytes
+end
+
+-- Fallback: если getgc пустой, качаем через getreg() + debug.info самого себя
+local function fallbackGCScan()
+    -- Если megaDumpClosures отработал (Closures Processed > 0), fallback не нужен
+    if (DeepData.MegaScanStats.ClosuresProcessed or 0) > 100 then return end
+    if not getreg then return end
+    DeepData.RegistryScan = {}
+    pcall(function()
+        local reg = getreg()
+        local cnt = 0
+        for k, v in pairs(reg) do
+            cnt = cnt + 1
+            if type(v) == "function" and getconstants then
+                pcall(function()
+                    local c = getconstants(v)
+                    if c then
+                        for _, cv in pairs(c) do
+                            if type(cv) == "string" and #cv < 300 then
+                                scanStringForSecrets(cv, "registry")
+                            end
+                        end
+                    end
+                end)
+                pcall(function()
+                    if getupvalues then
+                        local ups = getupvalues(v)
+                        if ups then
+                            for _, uv in pairs(ups) do
+                                if typeof(uv) == "Instance" and (uv:IsA("RemoteEvent") or uv:IsA("RemoteFunction")) then
+                                    safeInsert(DeepData.UpvalueRemotes, uv)
+                                    pcall(indexObject, uv)
+                                end
+                            end
+                        end
+                    end
+                end)
+            elseif typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
+                safeInsert(DeepData.GCRemotesFound, v)
+                pcall(indexObject, v)
+            end
+            if cnt > 20000 then break end
+        end
+        DeepData.RegistryScan.total = cnt
+    end)
+end
+
+-- Через getconnections на всех RemoteEvent'ах вытаскиваем connect'ы и их upvalues → находим скрытые ссылки
+local function hookGCAlternative()
+    if not getconnections then return end
+    DeepData.ConnectionScan = { total = 0, funcs = 0 }
+    local allRemotes = {}
+    for _, cat in ipairs({"MoneyRemotes","AdminRemotes","GodRemotes","ExecuteRemotes","KillRemotes","DeleteRemotes","BossRemotes","CombatRemotes","DamageRemotes","HighValueRemotes","UnknownRemotes"}) do
+        for _, r in ipairs(DeepData[cat] or {}) do allRemotes[r] = true end
+    end
+    for r, _ in pairs(allRemotes) do
+        pcall(function()
+            local sigs = {}
+            if r:IsA("RemoteEvent") then table.insert(sigs, r.OnClientEvent)
+            elseif r:IsA("RemoteFunction") then table.insert(sigs, r.OnClientInvoke) end
+            for _, sig in ipairs(sigs) do
+                pcall(function()
+                    local conns = getconnections(sig)
+                    if conns then
+                        DeepData.ConnectionScan.total = DeepData.ConnectionScan.total + #conns
+                        for _, c in ipairs(conns) do
+                            pcall(function()
+                                local fn = c.Function or c.Func
+                                if fn and type(fn) == "function" then
+                                    DeepData.ConnectionScan.funcs = DeepData.ConnectionScan.funcs + 1
+                                    if getconstants then
+                                        for _, cv in pairs(getconstants(fn) or {}) do
+                                            if type(cv) == "string" and #cv < 300 then
+                                                scanStringForSecrets(cv, "conn@" .. r:GetFullName())
+                                            end
+                                        end
+                                    end
+                                    if getupvalues then
+                                        for _, uv in pairs(getupvalues(fn) or {}) do
+                                            if typeof(uv) == "Instance" and (uv:IsA("RemoteEvent") or uv:IsA("RemoteFunction")) then
+                                                safeInsert(DeepData.UpvalueRemotes, uv)
+                                                pcall(indexObject, uv)
+                                            end
+                                        end
+                                    end
+                                end
+                            end)
+                        end
+                    end
+                end)
+            end
+        end)
+    end
+end
+
+-- Полный дамп PlayerGui со всеми свойствами UI
+local function dumpPlayerGuiFully()
+    DeepData.PlayerGuiFullDump = {}
+    pcall(function()
+        local pg = lp:FindFirstChild("PlayerGui")
+        if not pg then return end
+        for _, d in ipairs(pg:GetDescendants()) do
+            pcall(function()
+                local e = { path = d:GetFullName(), class = d.ClassName }
+                if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                    e.text = tostring(d.Text):sub(1, 200)
+                elseif d:IsA("ImageLabel") or d:IsA("ImageButton") then
+                    e.image = tostring(d.Image)
+                elseif d:IsA("Frame") or d:IsA("ScreenGui") then
+                    e.visible = d.Visible
+                end
+                table.insert(DeepData.PlayerGuiFullDump, e)
+            end)
+        end
+    end)
+end
+
+-- Список ВСЕХ сервисов Roblox с их детьми (первый уровень)
+local function scanAllServices()
+    DeepData.AllServicesScan = {}
+    local svcs = {
+        "Workspace","ReplicatedStorage","ReplicatedFirst","ServerStorage","ServerScriptService",
+        "StarterGui","StarterPack","StarterPlayer","Lighting","SoundService","Chat","Teams",
+        "MaterialService","LocalizationService","HttpService","MarketplaceService","DataStoreService",
+        "TeleportService","GamePassService","BadgeService","CollectionService","ContextActionService",
+        "TweenService","RunService","UserInputService","InsertService","PhysicsService",
+        "AnalyticsService","GroupService","LogService","AssetService","ContentProvider",
+        "GuiService","HapticService","JointsService","PolicyService","PathfindingService",
+        "PluginDebugService","PluginGuiService","ProximityPromptService","ReplicatedScriptService",
+        "SocialService","TextService","TextChatService","VoiceChatService","VRService",
+        "MessagingService","MemoryStoreService","RemoteEvent",
+    }
+    for _, svcName in ipairs(svcs) do
+        pcall(function()
+            local svc = game:GetService(svcName)
+            if svc then
+                local kids = {}
+                pcall(function() for _, c in ipairs(svc:GetChildren()) do
+                    table.insert(kids, { name = c.Name, class = c.ClassName })
+                end end)
+                DeepData.AllServicesScan[svcName] = { class = svc.ClassName, childCount = #kids, children = kids }
+            end
+        end)
+    end
+end
+
 -- Считаем сколько раз каждый remote вызывается (topN abused)
 local function computeAbusedRemotes()
     DeepData.MostCalledRemotes = {}
@@ -1384,15 +1732,24 @@ local function runFullAnalysis(force)
     scanRunContextAnomalies()
     scanPlayerGuis()
     task.wait(0.3)
+    -- v5 TOTAL EXTRACTION
+    extractFullGameStructure()
+    scanAllServices()
+    dumpPlayerGuiFully()
+    scanEverySingleScript()  -- ВСЕ скрипты полностью, без обрезки
+    task.wait(0.3)
+    fallbackGCScan()         -- если getgc пуст — качаем через getreg
+    hookGCAlternative()      -- через getconnections
+    task.wait(0.3)
     attemptDecompile()
-    scanForBackdoors()          -- нужно ПОСЛЕ AllScriptSources
-    scanNamingObfuscation()     -- нужно ПОСЛЕ индекса remote
+    scanForBackdoors()
+    scanNamingObfuscation()
     scanMarketplace()
     computeAbusedRemotes()
     buildExploitList()
     DeepData.ScanTime = tick() - now
     warn("╔═════════════════════════════════════════════╗")
-    warn("║ 🔬 GAME ANALYZER v4 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
+    warn("║ 🔬 GAME ANALYZER v5 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
     warn("║ 🎮 " .. tostring(DeepData.GameName) .. " (place=" .. tostring(DeepData.PlaceId) .. ")")
     warn("╠═════════════════════════════════════════════╣")
     warn(string.format("║ 🚪 Total exploits: %d", #DeepData.ExploitList))
@@ -1417,6 +1774,10 @@ local function runFullAnalysis(force)
         #DeepData.DiscoveredPasswords, #DeepData.DiscoveredTokens, #DeepData.DiscoveredIDs))
     warn(string.format("║ 👥 AdminList:%d  🔗 BindEv:%d  🌍 NetOwn:%d",
         #DeepData.AdminList, #DeepData.BindableEvents, #DeepData.NetworkOwners))
+    warn(string.format("║ 🌲 FullTree:%d instances  📜 Scripts:%d (%d KB)",
+        #DeepData.FullGameTree, DeepData.ScriptCandidateCount, math.floor((DeepData.TotalScriptBytes or 0)/1024)))
+    warn(string.format("║ 🔗 Connections:%d funcs:%d  📮 Registry:%d",
+        DeepData.ConnectionScan.total or 0, DeepData.ConnectionScan.funcs or 0, DeepData.RegistryScan.total or 0))
     warn("╚═════════════════════════════════════════════╝")
 end
 ws.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
@@ -1567,7 +1928,7 @@ local function fullReportToString()
     local function sec(title) w(""); w("╔══════════════════════════════════════════════════════════════╗"); w("║ " .. title); w("╚══════════════════════════════════════════════════════════════╝") end
 
     w("╔══════════════════════════════════════════════════════════════╗")
-    w("║ 🔬 GAME ANALYZER v4.0 MEGA DEEP — FULL REPORT")
+    w("║ 🔬 GAME ANALYZER v5.0 TOTAL EXTRACTION — FULL REPORT")
     w("║ Scan #" .. DeepData.ScanCount .. " | ScanTime: " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
     w("║ 🎮 Game: " .. tostring(DeepData.GameName))
     w("║ GameId=" .. tostring(DeepData.GameId) .. " | PlaceId=" .. tostring(DeepData.PlaceId))
@@ -1605,6 +1966,13 @@ local function fullReportToString()
         " hashes=" .. #DeepData.DiscoveredHashes)
     w("Admin Names Found: " .. #DeepData.AdminList)
     w("Closures Processed: " .. tostring(DeepData.MegaScanStats.ClosuresProcessed or 0))
+    w("Full Game Tree Instances: " .. #DeepData.FullGameTree)
+    w("Script Candidates: " .. DeepData.ScriptCandidateCount .. " (total " .. math.floor((DeepData.TotalScriptBytes or 0)/1024) .. " KB of source)")
+    w("Registry Entries Scanned: " .. tostring(DeepData.RegistryScan.total or 0))
+    w("Connections Enumerated: " .. tostring(DeepData.ConnectionScan.total or 0) .. " (with " .. tostring(DeepData.ConnectionScan.funcs or 0) .. " unique handler funcs)")
+    w("PlayerGui Nodes: " .. #DeepData.PlayerGuiFullDump)
+    do local c = 0 for _ in pairs(DeepData.AllServicesScan) do c=c+1 end
+      w("Roblox Services Scanned: " .. c) end
 
     -- ============ PLAYER CONTEXT ============
     sec("👤 LOCAL PLAYER CONTEXT")
@@ -1884,6 +2252,61 @@ local function fullReportToString()
         end
     end
 
+    -- ============ v5: COMPLETE GAME STRUCTURE ============
+    sec("🌲 COMPLETE GAME STRUCTURE — every single Instance")
+    w("Total instances scanned: " .. #DeepData.FullGameTree)
+    w("")
+    w("── Class distribution ──")
+    do
+        local classes = {}
+        for cls, cnt in pairs(DeepData.InstanceClassStats) do
+            table.insert(classes, { cls = cls, cnt = cnt })
+        end
+        table.sort(classes, function(a, b) return a.cnt > b.cnt end)
+        for _, c in ipairs(classes) do w("  " .. c.cnt .. " × " .. c.cls) end
+    end
+    w("")
+    w("── Full instance tree (path : class : extra) ──")
+    for _, e in ipairs(DeepData.FullGameTree) do
+        local extra = ""
+        if e.value then extra = extra .. " value=" .. e.value end
+        if e.pos then extra = extra .. " pos=" .. e.pos end
+        if e.size then extra = extra .. " size=" .. e.size end
+        if e.anchored ~= nil then extra = extra .. " anchored=" .. tostring(e.anchored) end
+        if e.soundId then extra = extra .. " sound=" .. e.soundId end
+        if e.animationId then extra = extra .. " anim=" .. e.animationId end
+        if e.meshId then extra = extra .. " mesh=" .. e.meshId end
+        if e.textureId then extra = extra .. " tex=" .. e.textureId end
+        if e.image then extra = extra .. " image=" .. e.image end
+        if e.health then extra = extra .. " hp=" .. e.health .. "/" .. e.maxHealth .. " ws=" .. tostring(e.walkSpeed) end
+        if e.actionText then extra = extra .. " prompt='" .. e.actionText .. "'" end
+        if e.tags then extra = extra .. " tags=" .. e.tags end
+        w("  " .. e.path .. " :: " .. e.class .. extra)
+        if e.attrs then
+            for k, v in pairs(e.attrs) do w("      @" .. k .. " = " .. v) end
+        end
+    end
+
+    -- ============ v5: ALL SERVICES ============
+    sec("🏛️ ALL ROBLOX SERVICES + THEIR CHILDREN")
+    for svcName, info in pairs(DeepData.AllServicesScan) do
+        w("")
+        w("── " .. svcName .. " (" .. info.class .. ", children=" .. info.childCount .. ") ──")
+        for _, c in ipairs(info.children) do
+            w("  " .. c.name .. " :: " .. c.class)
+        end
+    end
+
+    -- ============ v5: FULL PLAYER GUI ============
+    sec("🖼️ PLAYER GUI FULL DUMP")
+    for _, e in ipairs(DeepData.PlayerGuiFullDump) do
+        local extra = ""
+        if e.text then extra = " text='" .. e.text .. "'" end
+        if e.image then extra = " img=" .. e.image end
+        if e.visible ~= nil then extra = " visible=" .. tostring(e.visible) end
+        w("  " .. e.path .. " :: " .. e.class .. extra)
+    end
+
     -- ============ ANALYST NOTE ============
     sec("🧠 ANALYSIS SUMMARY (for LLM/human review)")
     w("Recommended immediate targets, ranked by score:")
@@ -1902,7 +2325,7 @@ local function fullReportToString()
     w(" - Network ownership map")
     w("")
     w("╔══════════════════════════════════════════════════════════════╗")
-    w("║ END OF REPORT — GameAnalyzer v4.0 MEGA DEEP+ ULTRA")
+    w("║ END OF REPORT — GameAnalyzer v5.0 TOTAL EXTRACTION")
     w("║ Total size: " .. tostring(math.floor((#table.concat(out, "\n"))/1024)) .. " KB")
     w("╚══════════════════════════════════════════════════════════════╝")
     return table.concat(out, "\n")
@@ -2134,7 +2557,7 @@ makeCorner(mf, 10)
 newInst("UIStroke", { Color = Color3.fromRGB(80, 80, 100), Thickness = 2, Transparency = 0.3 }, mf)
 local title = newInst("TextLabel", {
     Size = UDim2.new(1, -70, 0, 32),
-    Text = "  🔬 GAME ANALYZER v4.0",
+    Text = "  🔬 GAME ANALYZER v5.0",
     TextColor3 = Color3.fromRGB(150, 220, 255),
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -2675,8 +3098,10 @@ local function unloadAll()
 end
 _G.GameAnalyzerPro.Unload = unloadAll
 unloadBtn.MouseButton1Click:Connect(unloadAll)
-warn("[GameAnalyzer v4.0 MEGA DEEP+ ULTRA] ✅ Загружен!")
-warn("[v4] 🔄 SCAN — мега-глубокий анализ (все прошлые векторы + deepWalk upvalue-таблиц + Instance.new hook + backdoor detector + attributes/tags/RunContext аномалии)")
-warn("[v4] 📋 EXPORT — ЛКМ: ВЕСЬ отчёт целиком в буфер (без разбиения) + файл GameAnalyzer_Report.txt")
-warn("[v4] 📋 EXPORT — ПКМ: пересобрать и снова скопировать целиком")
-warn("[v4] Отчёт содержит: реальный код всех скриптов игры + секреты (webhooks/keys/passwords/tokens) + admin lists + attributes + tags + backdoors")
+warn("[GameAnalyzer v5.0 TOTAL EXTRACTION] ✅ Загружен!")
+warn("[v5] 🔄 SCAN — вырываем ВСЮ структуру игры целиком (каждый Instance + класс + свойства + attrs + tags)")
+warn("[v5] 🔄 SCAN — decompile ВСЕХ скриптов полностью, без обрезки")
+warn("[v5] 🔄 SCAN — 3 независимых сканера GC (main + registry fallback + connections)")
+warn("[v5] 📋 EXPORT — ЛКМ: ВЕСЬ отчёт целиком в буфер одним куском + файл GameAnalyzer_Report.txt")
+warn("[v5] 📋 EXPORT — ПКМ: пересобрать и скопировать заново")
+warn("[v5] Всё что можно вытащить из игры — вытаскиваем: код, свойства, значения, uid, attributes, tags, services, gui")
