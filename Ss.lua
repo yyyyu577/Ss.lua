@@ -1,4 +1,4 @@
-warn("[GameAnalyzer v5.0 TOTAL EXTRACTION] === СКРИПТ ЗАПУЩЕН ===")
+warn("[GameAnalyzer v5.1 SMART CLIPBOARD] === СКРИПТ ЗАПУЩЕН ===")
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
 end
@@ -1847,20 +1847,76 @@ local function executeExploit(exp)
     warn("[🚪 EXEC " .. exp.effectIcon .. "] " .. exp.effect .. " → " .. exp.path .. " (fired " .. fired .. ")")
     return true, fired
 end
+-- v5.1: SMART CLIPBOARD с диагностикой и fallback
+local _getclipboard = rawget(getfenv(), "getclipboard") or rawget(getfenv(), "get_clipboard")
+_G.GA_ClipboardStatus = { lastTry = 0, lastSuccess = 0, lastMethod = "none", lastError = "" }
+
 local function copyToClipboard(text)
-    if setclipboard then
-        -- v4: несколько попыток, потому что мобильные executors иногда не срабатывают с первого раза
-        local ok = false
-        for _ = 1, 3 do
-            local success = pcall(function() setclipboard(text) end)
-            if success then ok = true; break end
-            task.wait(0.1)
-        end
-        return ok
+    if type(text) ~= "string" then text = tostring(text) end
+    local size = #text
+    _G.GA_ClipboardStatus.lastTry = size
+    _G.GA_ClipboardStatus.lastMethod = "none"
+    _G.GA_ClipboardStatus.lastError = ""
+
+    if not setclipboard then
+        _G.GA_ClipboardStatus.lastError = "setclipboard API missing"
+        warn("[📋] setclipboard недоступен")
+        return false, 0
     end
-    warn("[📋] setclipboard недоступен — text:\n" .. text:sub(1, 500))
-    return false
+
+    -- Попытка 1: целиком с 3 ретраями
+    for attempt = 1, 3 do
+        local ok, err = pcall(function() setclipboard(text) end)
+        task.wait(0.15)
+        if ok then
+            -- Проверка через getclipboard если есть
+            if _getclipboard then
+                local got = nil
+                pcall(function() got = _getclipboard() end)
+                if type(got) == "string" and #got >= math.floor(size * 0.9) then
+                    _G.GA_ClipboardStatus.lastSuccess = #got
+                    _G.GA_ClipboardStatus.lastMethod = "full-verified"
+                    return true, #got
+                elseif type(got) == "string" and #got > 100 then
+                    -- Что-то залезло, но не всё
+                    _G.GA_ClipboardStatus.lastSuccess = #got
+                    _G.GA_ClipboardStatus.lastMethod = "partial"
+                    _G.GA_ClipboardStatus.lastError = "clip truncated: got " .. #got .. " of " .. size
+                    -- Продолжаем попытки ниже
+                else
+                    _G.GA_ClipboardStatus.lastError = "getclipboard returned empty/wrong"
+                end
+            else
+                -- Без верификации — считаем успехом
+                _G.GA_ClipboardStatus.lastSuccess = size
+                _G.GA_ClipboardStatus.lastMethod = "full-unverified"
+                return true, size
+            end
+        else
+            _G.GA_ClipboardStatus.lastError = tostring(err)
+        end
+    end
+
+    -- Попытка 2: разбить на 2 половины и склеить (иногда так проходит)
+    if size > 100000 then
+        local half = math.floor(size / 2)
+        local ok2 = pcall(function() setclipboard(text:sub(1, half)) end)
+        task.wait(0.2)
+        if ok2 and _getclipboard then
+            local g = nil; pcall(function() g = _getclipboard() end)
+            if type(g) == "string" and #g > 1000 then
+                _G.GA_ClipboardStatus.lastSuccess = #g
+                _G.GA_ClipboardStatus.lastMethod = "half-only"
+                _G.GA_ClipboardStatus.lastError = "size " .. size .. " too big — copied half " .. #g
+                return true, #g
+            end
+        end
+    end
+
+    _G.GA_ClipboardStatus.lastSuccess = 0
+    return false, 0
 end
+getclipboard = _getclipboard
 local function exploitToScript(exp)
     local args = exp.suggestedArgs and exp.suggestedArgs[1] or {}
     local argsStr = argsToString(args):sub(2, -2)
@@ -2332,6 +2388,136 @@ local function fullReportToString()
 end
 
 -- Разбивает большой отчёт на куски ~15KB чтобы влезло в буфер Discord/чата LLM
+-- v5.1: LITE-версия отчёта — только самое сочное, ~30-80KB, точно влезет в буфер
+local function liteReportToString()
+    local out = {}
+    local function w(s) table.insert(out, s or "") end
+    w("╔══════ GAME ANALYZER v5.1 — LITE REPORT ══════╗")
+    w("Game: " .. tostring(DeepData.GameName) .. " | Place=" .. tostring(DeepData.PlaceId) .. " | GameId=" .. tostring(DeepData.GameId))
+    w("Player: " .. lp.Name .. " (uid=" .. tostring(lp.UserId) .. ")")
+    w("AntiCheat: " .. tostring(DeepData.AnticheatType))
+    w("Scan #" .. DeepData.ScanCount .. " in " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
+    w("")
+    w("== STATS ==")
+    w("Exploits:" .. #DeepData.ExploitList
+      .. " | Money:" .. #DeepData.MoneyRemotes
+      .. " | Admin:" .. #DeepData.AdminRemotes
+      .. " | God:" .. #DeepData.GodRemotes
+      .. " | Exec:" .. #DeepData.ExecuteRemotes
+      .. " | Kick:" .. #DeepData.KillRemotes
+      .. " | GC-found:" .. #DeepData.GCRemotesFound
+      .. " | Upval:" .. #DeepData.UpvalueRemotes)
+    w("Instances:" .. #DeepData.FullGameTree
+      .. " | Scripts:" .. (DeepData.ScriptCandidateCount or 0)
+      .. " (" .. math.floor((DeepData.TotalScriptBytes or 0)/1024) .. "KB)"
+      .. " | Modules:" .. #DeepData.LoadedModules
+      .. " | Nil:" .. #DeepData.NilInstances
+      .. " | Protected:" .. #DeepData.ProtectedInstances)
+    w("Secrets: webhooks=" .. #DeepData.DiscoveredWebhooks
+      .. " keys=" .. #DeepData.DiscoveredKeys
+      .. " passwds=" .. #DeepData.DiscoveredPasswords
+      .. " tokens=" .. #DeepData.DiscoveredTokens
+      .. " admins=" .. #DeepData.AdminList)
+    w("")
+
+    -- Все эксплойты, кратко: 1 строка на remote
+    w("== ALL EXPLOITS (" .. #DeepData.ExploitList .. ") ==")
+    for _, e in ipairs(DeepData.ExploitList) do
+        local sig = ""
+        local key = e.remote and e.remote:GetFullName()
+        if key and DeepData.CallSignatures[key] then
+            local s = DeepData.CallSignatures[key]
+            sig = " [LIVE×" .. s.count .. "]"
+            if s.samples and s.samples[1] then
+                sig = sig .. " " .. argsToString(s.samples[1]):sub(1, 120)
+            end
+        end
+        w(e.effectIcon .. "[" .. e.risk .. "|" .. e.score .. "] " .. e.effect .. " :: " .. e.path .. sig)
+    end
+    w("")
+
+    -- Секреты — всё
+    if #DeepData.DiscoveredWebhooks > 0 then
+        w("== WEBHOOKS ==")
+        for _, s in ipairs(DeepData.DiscoveredWebhooks) do w("  " .. tostring(s.value) .. "  ← " .. s.source) end
+    end
+    if #DeepData.DiscoveredPasswords > 0 then
+        w("== PASSWORDS ==")
+        for _, s in ipairs(DeepData.DiscoveredPasswords) do w("  " .. tostring(s.value) .. "  ← " .. s.source) end
+    end
+    if #DeepData.DiscoveredKeys > 0 then
+        w("== KEYS/SECRETS ==")
+        for _, s in ipairs(DeepData.DiscoveredKeys) do w("  " .. tostring(s.value) .. "  ← " .. s.source) end
+    end
+    if #DeepData.DiscoveredTokens > 0 then
+        w("== TOKENS ==")
+        for _, s in ipairs(DeepData.DiscoveredTokens) do w("  " .. tostring(s.value) .. "  ← " .. s.source) end
+    end
+    if #DeepData.AdminList > 0 then
+        w("== ADMINS (extracted from closures) ==")
+        for _, a in ipairs(DeepData.AdminList) do w("  " .. tostring(a.name or a.userId) .. "  ← " .. tostring(a.source)) end
+    end
+
+    -- Backdoor скрипты
+    if DeepData.BackdoorScripts and #DeepData.BackdoorScripts > 0 then
+        w("")
+        w("== BACKDOOR-SUSPECT SCRIPTS ==")
+        for _, b in ipairs(DeepData.BackdoorScripts) do
+            w("  " .. b.path .. "  hits=[" .. table.concat(b.hits, ",") .. "]")
+        end
+    end
+
+    -- Protected
+    if #DeepData.ProtectedInstances > 0 then
+        w("")
+        w("== PROTECTED STORAGE ==")
+        for _, pi in ipairs(DeepData.ProtectedInstances) do
+            w("  [" .. pi.service .. "] " .. pi.class .. " :: " .. pi.path)
+        end
+    end
+
+    -- Nil-parent
+    if #DeepData.NilParentObjects > 0 then
+        w("")
+        w("== NIL-PARENT REMOTES ==")
+        for _, o in ipairs(DeepData.NilParentObjects) do
+            pcall(function() w("  " .. o.ClassName .. " :: " .. o.Name) end)
+        end
+    end
+
+    -- Most called
+    if DeepData.MostCalledRemotes and #DeepData.MostCalledRemotes > 0 then
+        w("")
+        w("== TOP CALLED REMOTES ==")
+        for i, r in ipairs(DeepData.MostCalledRemotes) do w("  " .. i .. ". " .. r.count .. "× " .. r.path) end
+    end
+
+    -- Spy сигнатуры (краткая версия — только имя+кол-во)
+    local sigcnt = 0 for _ in pairs(DeepData.CallSignatures) do sigcnt = sigcnt + 1 end
+    if sigcnt > 0 then
+        w("")
+        w("== SPY SIGNATURES (" .. sigcnt .. ") ==")
+        for path, s in pairs(DeepData.CallSignatures) do
+            w("  " .. s.count .. "× " .. path)
+            if s.samples and s.samples[1] then w("     " .. argsToString(s.samples[1]):sub(1, 200)) end
+        end
+    end
+
+    -- Instance class distribution
+    w("")
+    w("== INSTANCE CLASS DISTRIBUTION ==")
+    do
+        local classes = {}
+        for cls, cnt in pairs(DeepData.InstanceClassStats) do table.insert(classes, {cls=cls, cnt=cnt}) end
+        table.sort(classes, function(a,b) return a.cnt > b.cnt end)
+        for _, c in ipairs(classes) do w("  " .. c.cnt .. " × " .. c.cls) end
+    end
+
+    w("")
+    w("╚══════ END LITE — для полного отчёта жми EXPORT (файл GameAnalyzer_Report.txt) ══════╝")
+    return table.concat(out, "\n")
+end
+
 local function chunkReport(report, chunkSize)
     chunkSize = chunkSize or 15000
     local chunks = {}
@@ -2557,7 +2743,7 @@ makeCorner(mf, 10)
 newInst("UIStroke", { Color = Color3.fromRGB(80, 80, 100), Thickness = 2, Transparency = 0.3 }, mf)
 local title = newInst("TextLabel", {
     Size = UDim2.new(1, -70, 0, 32),
-    Text = "  🔬 GAME ANALYZER v5.0",
+    Text = "  🔬 GAME ANALYZER v5.1",
     TextColor3 = Color3.fromRGB(150, 220, 255),
     Font = Enum.Font.GothamBold, TextSize = 13,
     TextXAlignment = Enum.TextXAlignment.Left,
@@ -2591,23 +2777,31 @@ minBtn.MouseButton1Click:Connect(function()
     end
 end)
 local actF = newInst("Frame", { Size = UDim2.new(1, -12, 0, 42), Position = UDim2.new(0, 6, 0, 38), BackgroundTransparency = 1, ZIndex = 11 }, mf)
+-- v5.1: 4 кнопки в ряд — SCAN | EXPORT (full) | LITE (compact) | EXEC ALL
 local scanBtn = newInst("TextButton", {
-    Size = UDim2.new(0.32, -3, 1, 0), Position = UDim2.new(0, 0, 0, 0),
-    Text = "🔄 SCAN", Font = Enum.Font.GothamBold, TextSize = 13,
+    Size = UDim2.new(0.24, -3, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+    Text = "🔄 SCAN", Font = Enum.Font.GothamBold, TextSize = 12,
     TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(0, 140, 180),
     BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(scanBtn, 6)
 local exportBtn = newInst("TextButton", {
-    Size = UDim2.new(0.32, -3, 1, 0), Position = UDim2.new(0.34, 0, 0, 0),
-    Text = "📋 EXPORT", Font = Enum.Font.GothamBold, TextSize = 13,
+    Size = UDim2.new(0.26, -3, 1, 0), Position = UDim2.new(0.25, 0, 0, 0),
+    Text = "📋 EXPORT", Font = Enum.Font.GothamBold, TextSize = 12,
     TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(0, 150, 100),
     BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(exportBtn, 6)
+local liteBtn = newInst("TextButton", {
+    Size = UDim2.new(0.24, -3, 1, 0), Position = UDim2.new(0.52, 0, 0, 0),
+    Text = "📎 LITE", Font = Enum.Font.GothamBold, TextSize = 12,
+    TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(120, 100, 200),
+    BorderSizePixel = 0, ZIndex = 12
+}, actF)
+makeCorner(liteBtn, 6)
 local execAllBtn = newInst("TextButton", {
-    Size = UDim2.new(0.32, -3, 1, 0), Position = UDim2.new(0.68, 0, 0, 0),
-    Text = "🔥 EXEC ALL", Font = Enum.Font.GothamBold, TextSize = 13,
+    Size = UDim2.new(0.26, -3, 1, 0), Position = UDim2.new(0.77, 0, 0, 0),
+    Text = "🔥 EXEC", Font = Enum.Font.GothamBold, TextSize = 12,
     TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(180, 40, 40),
     BorderSizePixel = 0, ZIndex = 12
 }, actF)
@@ -3023,33 +3217,137 @@ scanBtn.MouseButton1Click:Connect(function()
         task.wait(3); scanBtn.Text = "🔄 SCAN"
     end)
 end)
+-- v5.1: SMART EXPORT — файл + буфер + диагностика
+_G.GA_LastReport = ""
+_G.GA_LastReportPath = ""
+
+local function saveReportToFile(report)
+    if not writefile then return nil, "writefile API missing" end
+    local names = {
+        "GameAnalyzer_Report.txt",
+        "workspace/GameAnalyzer_Report.txt",
+        "GA_Report.txt",
+    }
+    for _, name in ipairs(names) do
+        local ok, err = pcall(function() writefile(name, report) end)
+        if ok then
+            -- Проверяем что реально записалось
+            if isfile then
+                local check = false
+                pcall(function() check = isfile(name) end)
+                if check then return name end
+            else
+                return name
+            end
+        end
+    end
+    return nil, "writefile failed on all paths"
+end
+
 exportBtn.MouseButton1Click:Connect(function()
     exportBtn.Text = "📋 BUILDING..."
     task.spawn(function()
         local report = fullReportToString()
-        -- Сохраняем файлом если можем (страховка на случай если буфер обрезан executor'ом)
-        if writefile then
-            pcall(function() writefile("GameAnalyzer_Report.txt", report) end)
-        end
-        -- Копируем ВСЁ ЦЕЛИКОМ в буфер за один раз
-        local ok = pcall(function() copyToClipboard(report) end)
-        _origPrint("\n════ FULL REPORT (" .. math.floor(#report/1024) .. "KB) ════\n" .. report)
-        if ok then
-            exportBtn.Text = "✅ ALL " .. math.floor(#report/1024) .. "KB → clip"
+        _G.GA_LastReport = report
+        local sizeKB = math.floor(#report/1024)
+
+        -- 1) Всегда сохраняем файлом (надёжнее буфера)
+        local filePath, fileErr = saveReportToFile(report)
+        _G.GA_LastReportPath = filePath or ""
+
+        -- 2) Пытаемся в буфер целиком
+        local clipOk, clipBytes = copyToClipboard(report)
+        local clipKB = math.floor((clipBytes or 0)/1024)
+
+        -- 3) Печатаем весь отчёт в консоль (F9) — тоже страховка
+        _origPrint("\n════ FULL REPORT (" .. sizeKB .. "KB) ════\n" .. report)
+
+        -- Диагностика
+        local status = _G.GA_ClipboardStatus
+        _origPrint("\n[EXPORT DIAG]")
+        _origPrint("  Report size: " .. sizeKB .. " KB (" .. #report .. " bytes)")
+        _origPrint("  File saved: " .. (filePath or ("FAIL — " .. tostring(fileErr))))
+        _origPrint("  Clipboard method: " .. status.lastMethod)
+        _origPrint("  Clipboard got: " .. clipKB .. " KB")
+        _origPrint("  Clipboard error: " .. status.lastError)
+
+        if clipOk and status.lastMethod == "full-verified" then
+            exportBtn.Text = "✅ CLIP " .. sizeKB .. "KB OK"
+        elseif clipOk and status.lastMethod == "full-unverified" then
+            exportBtn.Text = "✅ CLIP " .. sizeKB .. "KB (?)"
+        elseif clipOk then
+            exportBtn.Text = "⚠️ PART " .. clipKB .. "/" .. sizeKB .. "KB"
+        elseif filePath then
+            exportBtn.Text = "📁 FILE: " .. filePath
         else
-            exportBtn.Text = "⚠️ clip fail (см. файл)"
+            exportBtn.Text = "❌ FAIL — F9 console"
         end
-        task.wait(4); exportBtn.Text = "📋 EXPORT"
+        task.wait(6); exportBtn.Text = "📋 EXPORT"
     end)
 end)
--- Правый клик = пересобрать и снова скопировать целиком (если буфер вдруг перезаписан)
+
+-- LITE-версия отчёта: ~30-80KB, точно влезет в буфер мобильной Delta
+liteBtn.MouseButton1Click:Connect(function()
+    liteBtn.Text = "📎 BUILDING..."
+    task.spawn(function()
+        local lite = liteReportToString()
+        local sizeKB = math.floor(#lite/1024)
+        if writefile then
+            pcall(function() writefile("GameAnalyzer_Lite.txt", lite) end)
+        end
+        local ok, bytes = copyToClipboard(lite)
+        local kb = math.floor((bytes or 0)/1024)
+        _origPrint("\n════ LITE REPORT (" .. sizeKB .. "KB) ════\n" .. lite)
+        if ok and _G.GA_ClipboardStatus.lastMethod == "full-verified" then
+            liteBtn.Text = "✅ LITE " .. sizeKB .. "KB OK"
+        elseif ok then
+            liteBtn.Text = "✅ LITE " .. sizeKB .. "KB"
+        else
+            liteBtn.Text = "⚠️ LITE " .. kb .. "/" .. sizeKB
+        end
+        task.wait(5); liteBtn.Text = "📎 LITE"
+    end)
+end)
+-- ПКМ на LITE: только список эксплойтов (супер-компактно ~5-15KB)
+liteBtn.MouseButton2Click:Connect(function()
+    liteBtn.Text = "📎 EXPLOITS..."
+    task.spawn(function()
+        local out = { "── EXPLOITS ONLY (" .. #DeepData.ExploitList .. ") ──" }
+        for _, e in ipairs(DeepData.ExploitList) do
+            table.insert(out, e.effectIcon .. "[" .. e.risk .. "|" .. e.score .. "] " .. e.effect .. " :: " .. e.path)
+            local key = e.remote and e.remote:GetFullName()
+            if key and DeepData.CallSignatures[key] then
+                local s = DeepData.CallSignatures[key]
+                table.insert(out, "  LIVE×" .. s.count .. " " .. (s.samples[1] and argsToString(s.samples[1]):sub(1, 150) or ""))
+            end
+        end
+        local text = table.concat(out, "\n")
+        local kb = math.floor(#text/1024)
+        local ok = copyToClipboard(text)
+        liteBtn.Text = ok and ("✅ EXPL " .. kb .. "KB") or ("❌ EXPL " .. kb .. "KB")
+        task.wait(4); liteBtn.Text = "📎 LITE"
+    end)
+end)
+
+-- ПКМ: RE-COPY последнего построенного отчёта (без пересборки — быстрее)
 exportBtn.MouseButton2Click:Connect(function()
+    if #_G.GA_LastReport < 100 then
+        exportBtn.Text = "⚠️ SCAN+EXPORT первым"
+        task.wait(2); exportBtn.Text = "📋 EXPORT"
+        return
+    end
     exportBtn.Text = "📋 RE-COPY..."
     task.spawn(function()
-        local report = fullReportToString()
-        pcall(function() copyToClipboard(report) end)
-        exportBtn.Text = "✅ RE-COPIED " .. math.floor(#report/1024) .. "KB"
-        task.wait(3); exportBtn.Text = "📋 EXPORT"
+        local ok, bytes = copyToClipboard(_G.GA_LastReport)
+        local kb = math.floor((bytes or 0)/1024)
+        if ok and _G.GA_ClipboardStatus.lastMethod == "full-verified" then
+            exportBtn.Text = "✅ RE-COPY " .. kb .. "KB OK"
+        elseif ok then
+            exportBtn.Text = "⚠️ RE-COPY " .. kb .. "KB"
+        else
+            exportBtn.Text = "❌ RE-COPY FAIL"
+        end
+        task.wait(4); exportBtn.Text = "📋 EXPORT"
     end)
 end)
 execAllBtn.MouseButton1Click:Connect(function()
@@ -3098,10 +3396,10 @@ local function unloadAll()
 end
 _G.GameAnalyzerPro.Unload = unloadAll
 unloadBtn.MouseButton1Click:Connect(unloadAll)
-warn("[GameAnalyzer v5.0 TOTAL EXTRACTION] ✅ Загружен!")
-warn("[v5] 🔄 SCAN — вырываем ВСЮ структуру игры целиком (каждый Instance + класс + свойства + attrs + tags)")
-warn("[v5] 🔄 SCAN — decompile ВСЕХ скриптов полностью, без обрезки")
-warn("[v5] 🔄 SCAN — 3 независимых сканера GC (main + registry fallback + connections)")
-warn("[v5] 📋 EXPORT — ЛКМ: ВЕСЬ отчёт целиком в буфер одним куском + файл GameAnalyzer_Report.txt")
-warn("[v5] 📋 EXPORT — ПКМ: пересобрать и скопировать заново")
-warn("[v5] Всё что можно вытащить из игры — вытаскиваем: код, свойства, значения, uid, attributes, tags, services, gui")
+warn("[GameAnalyzer v5.1 SMART CLIPBOARD] ✅ Загружен!")
+warn("[v5.1] 🔄 SCAN — полное вырывание структуры игры + декомпил всех скриптов")
+warn("[v5.1] 📋 EXPORT (ЛКМ) — полный отчёт (может быть 200-500KB) → файл GameAnalyzer_Report.txt + попытка в буфер")
+warn("[v5.1] 📋 EXPORT (ПКМ) — RE-COPY последнего собранного отчёта")
+warn("[v5.1] 📎 LITE (ЛКМ) — сжатый отчёт ~30-80KB (эксплойты+секреты+статистика) — ТОЧНО влезет в буфер")
+warn("[v5.1] 📎 LITE (ПКМ) — супер-компакт: только список эксплойтов ~5-15KB")
+warn("[v5.1] Смотри F9 консоль для DIAG что реально скопировалось в буфер")
