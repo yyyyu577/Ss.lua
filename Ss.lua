@@ -1,4 +1,4 @@
-warn("[GameAnalyzer v5.2 DISCORD EDITION] === СКРИПТ ЗАПУЩЕН ===")
+warn("[GameAnalyzer v5.3 SUPABASE EDITION] === СКРИПТ ЗАПУЩЕН ===")
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
  pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
 end
@@ -93,6 +93,11 @@ local Settings = {
  DeepAccess = true,
  ClipboardEnabled = _setclipboard ~= nil,
  SpyMaxCalls = 200,
+ -- Новые параметры телеметрии v5.3
+ SessionDuration = 1800, -- Время фоновой сессии в секундах (30 минут)
+ BackgroundAudit = true, -- Режим постоянного фонового аудита
+ SupabaseUrl = "https://earidffeokvqgffyioxa.supabase.co/storage/v1/object/Report/",
+ SupabaseKey = "sb_publishable_vAuejesqMghio6T2VFXXVQ_Bx3-6GCv"
 }
 local DeepData = {
  CombatRemotes = {}, DamageRemotes = {}, WeaponRemotes = {}, BossRemotes = {},
@@ -135,6 +140,9 @@ local DeepData = {
  ScriptCandidateCount = 0, TotalScriptBytes = 0,
  RegistryScan = {}, ConnectionScan = {},
  PlayerGuiFullDump = {}, AllServicesScan = {},
+ -- Данные телеметрии v5.3
+ TelemetryEvents = {},
+ MemorySnapshots = { LastGCState = {} }
 }
 local connections = {}
 local _origWarn = warn
@@ -1438,7 +1446,6 @@ local function fallbackGCScan()
  end
  end
  end
- end
  end)
  elseif typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
  safeInsert(DeepData.GCRemotesFound, v)
@@ -1577,7 +1584,7 @@ local function buildExploitList()
  table.sort(DeepData.ExploitList, function(a, b)
  if a.score ~= b.score then return (a.score or 0) > (b.score or 0) end
  local order = { CRITICAL = 4, HIGH = 3, MEDIUM = 2, LOW = 1 }
- return (order[a.risk] or 0) > (order[b.risk] or 0)
+ return (order[b.risk] or 0) > (order[b.risk] or 0)
  end)
 end
 local LastScanTime = 0
@@ -1587,7 +1594,7 @@ local function runFullAnalysis(force)
  LastScanTime = now
  DeepData.ScanCount = DeepData.ScanCount + 1
  for k, v in pairs(DeepData) do
- if type(v) == "table" and k ~= "ScriptSources" and k ~= "DecompiledScripts" and k ~= "SpiedCalls" and k ~= "CallSignatures" then
+ if type(v) == "table" and k ~= "ScriptSources" and k ~= "DecompiledScripts" and k ~= "SpiedCalls" and k ~= "CallSignatures" and k ~= "TelemetryEvents" and k ~= "MemorySnapshots" then
  DeepData[k] = {}
  end
  end
@@ -1647,7 +1654,7 @@ local function runFullAnalysis(force)
  buildExploitList()
  DeepData.ScanTime = tick() - now
  warn("╔═════════════════════════════════════════════╗")
- warn("║ 🔬 GAME ANALYZER v5.2 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
+ warn("║ 🔬 GAME ANALYZER v5.3 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
  warn("║ 🎮 " .. tostring(DeepData.GameName) .. " (place=" .. tostring(DeepData.PlaceId) .. ")")
  warn("╠═════════════════════════════════════════════╣")
  warn(string.format("║ 🚪 Total exploits: %d", #DeepData.ExploitList))
@@ -1848,7 +1855,7 @@ local function fullReportToString()
  local function w(s) table.insert(out, s or "") end
  local function sec(title) w(""); w("╔══════════════════════════════════════════════════════════════╗"); w("║ " .. title); w("╚══════════════════════════════════════════════════════════════╝") end
  w("╔══════════════════════════════════════════════════════════════╗")
- w("║ 🔬 GAME ANALYZER v5.2 TOTAL EXTRACTION — FULL REPORT")
+ w("║ 🔬 GAME ANALYZER v5.3 TOTAL EXTRACTION — FULL REPORT")
  w("║ Scan #" .. DeepData.ScanCount .. " | ScanTime: " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
  w("║ 🎮 Game: " .. tostring(DeepData.GameName))
  w("║ GameId=" .. tostring(DeepData.GameId) .. " | PlaceId=" .. tostring(DeepData.PlaceId))
@@ -1930,6 +1937,21 @@ local function fullReportToString()
  w(" " .. tostring(a.name or a.userId) .. " ← " .. tostring(a.source))
  end
  end
+ 
+ -- --- ВНЕДРЕНИЕ ДАННЫХ ФОНОВОЙ ТЕЛЕМЕТРИИ В ОТЧЕТ ---
+ if #DeepData.TelemetryEvents > 0 then
+  sec("📡 BACKGROUND RUNTIME TELEMETRY EVENT LOG")
+  for _, entry in ipairs(DeepData.TelemetryEvents) do
+   w(string.format(" [%s] (time: %ds) %s -> %s :: %s", 
+    tostring(entry.Priority),
+    math.floor(entry.Time),
+    tostring(entry.Category),
+    tostring(entry.Name),
+    tostring(entry.Detail)
+   ))
+  end
+ end
+
  sec("🚪 ALL EXPLOITS — FULL DETAIL WITH READY-TO-USE CODE")
  local byCat = {}
  for _, exp in ipairs(DeepData.ExploitList) do
@@ -2185,7 +2207,7 @@ local function fullReportToString()
  w(" - Network ownership map")
  w("")
  w("╔══════════════════════════════════════════════════════════════╗")
- w("║ END OF REPORT — GameAnalyzer v5.2 TOTAL EXTRACTION")
+ w("║ END OF REPORT — GameAnalyzer v5.3 TOTAL EXTRACTION")
  w("║ Total size: " .. tostring(math.floor((#table.concat(out, "\n"))/1024)) .. " KB")
  w("╚══════════════════════════════════════════════════════════════╝")
  return table.concat(out, "\n")
@@ -2193,7 +2215,7 @@ end
 local function liteReportToString()
  local out = {}
  local function w(s) table.insert(out, s or "") end
- w("╔══════ GAME ANALYZER v5.2 — LITE REPORT ══════╗")
+ w("╔══════ GAME ANALYZER v5.3 — LITE REPORT ══════╗")
  w("Game: " .. tostring(DeepData.GameName) .. " | Place=" .. tostring(DeepData.PlaceId) .. " | GameId=" .. tostring(DeepData.GameId))
  w("Player: " .. lp.Name .. " (uid=" .. tostring(lp.UserId) .. ")")
  w("AntiCheat: " .. tostring(DeepData.AnticheatType))
@@ -2524,7 +2546,7 @@ makeCorner(mf, 10)
 newInst("UIStroke", { Color = Color3.fromRGB(80, 80, 100), Thickness = 2, Transparency = 0.3 }, mf)
 local title = newInst("TextLabel", {
  Size = UDim2.new(1, -70, 0, 32),
- Text = " 🔬 GAME ANALYZER v5.2 DISCORD",
+ Text = " 🔬 GAME ANALYZER v5.3 SUPABASE",
  TextColor3 = Color3.fromRGB(150, 220, 255),
  Font = Enum.Font.GothamBold, TextSize = 13,
  TextXAlignment = Enum.TextXAlignment.Left,
@@ -2875,6 +2897,14 @@ local function refreshAnalyzer()
  ln("🗡️ Tools: " .. #DeepData.Tools .. " 💀 Bindables: " .. #DeepData.Bindables, Color3.fromRGB(150, 200, 150))
  ln("🎬 Prompts: " .. #DeepData.CombatPrompts .. " 🖱️ Clicks: " .. #DeepData.ClickDetectors, Color3.fromRGB(150, 200, 200))
  ln("👥 Hidden Models: " .. #DeepData.HiddenModels, Color3.fromRGB(255, 200, 100))
+ 
+ -- --- СТАТИСТИКА ТЕЛЕМЕТРИИ В АНАЛИЗАТОРЕ v5.3 ---
+ if #DeepData.TelemetryEvents > 0 then
+  ln("", nil)
+  ln("═══ TELEMETRY ENGINE ═══", Color3.fromRGB(255, 100, 255))
+  ln("📡 Telemetry Events: " .. #DeepData.TelemetryEvents, Color3.fromRGB(255, 150, 255))
+  ln("💀 Memory Delta Loops: " .. (DeepData.TotalMemoryDeltas or 0), Color3.fromRGB(200, 150, 255))
+ end
 end
 local spyPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false, ZIndex = 11 }, panelArea)
 tabPanels.spy = spyPanel
@@ -2996,6 +3026,9 @@ akLbl.Text = "🛡️ Anti-Kick PRO (" .. AK.layers .. " слоёв) [OFF]"
 makeToggle("🤫 Silent Mode", "SilentMode", Color3.fromRGB(80, 40, 120))
 makeToggle("🔄 Auto-Scan", "AutoScan", Color3.fromRGB(0, 130, 180))
 makeToggle("🔒 Deep Access (ReplicatedFirst/etc)", "DeepAccess", Color3.fromRGB(140, 60, 180))
+-- --- НОВЫЙ ТУМБЛЕР В НАСТРОЙКИ ДЛЯ ФОНОВОГО АУДИТА v5.3 ---
+makeToggle("📡 Фоновый аудит (Telemetry Engine)", "BackgroundAudit", Color3.fromRGB(200, 50, 180))
+
 scanBtn.MouseButton1Click:Connect(function()
  scanBtn.Text = "🔄 SCANNING..."
  task.spawn(function()
@@ -3114,8 +3147,9 @@ exportBtn.MouseButton2Click:Connect(function()
  task.wait(4); exportBtn.Text = "📋 EXPORT"
  end)
 end)
+
 -- ═══════════════════════════════════════════════════════════
--- СИСТЕМА ЭКСПОРТА В SUPABASE STORAGE (ОБХОД ЛИМИТОВ РАЗМЕРА)
+-- СИСТЕМА ЭКСПОРТА В SUPABASE STORAGE (ОБХОД ЛИМИТОВ РАЗМЕРА) v5.3
 -- ═══════════════════════════════════════════════════════════
 local SUPABASE_PROJECT_ID = "earidffeokvqgffyioxa"
 local SUPABASE_BUCKET = "Report"
@@ -3140,7 +3174,6 @@ local function uploadToSupabase(fileName, fileContent)
  }
 
  local success, response
- -- Пытаемся использовать самый мощный HTTP-метод исполнителя (Delta request)
  if _httprequest then
      success, response = pcall(_httprequest, reqData)
      if success and type(response) == "table" then
@@ -3152,7 +3185,6 @@ local function uploadToSupabase(fileName, fileContent)
      end
  end
 
- -- Если не вышло — используем легитимный RequestAsync
  success, response = pcall(function()
      return HttpService:RequestAsync(reqData)
  end)
@@ -3165,7 +3197,6 @@ local function uploadToSupabase(fileName, fileContent)
      end
  end
 
- -- Крайний случай - тупой PostAsync
  success, response = pcall(function()
      return HttpService:PostAsync(uploadUrl, fileContent, Enum.HttpContentType.TextPlain, false, headers)
  end)
@@ -3177,35 +3208,98 @@ local function uploadToSupabase(fileName, fileContent)
  end
 end
 
+-- --- ФУНКЦИИ ФОНОВОГО АУДИТА (RUNTIME TELEMETRY) ---
+local function logTelemetry(category, name, detail, priority)
+ if not Settings.BackgroundAudit then return end
+ priority = priority or "LOW"
+ local entry = {
+     Time = tick() - (DeepData.AuditStartTime or tick()),
+     Category = category,
+     Name = name,
+     Detail = detail,
+     Priority = priority
+ }
+ table.insert(DeepData.TelemetryEvents, entry)
+ if priority == "CRITICAL" or priority == "HIGH" then
+     _origWarn(string.format("🔬 [TELEMETRY ⚠️ %s] %s :: %s", priority, name, tostring(detail)))
+ end
+end
+
+local function takeGCSnapshot()
+ if not _getgc then return {} end
+ local snap = { Functions = {}, TablesCount = 0 }
+ local gc = _getgc(true)
+ local steps = 0
+ for i, obj in ipairs(gc) do
+     steps = steps + 1
+     if steps >= 1500 then task.wait(); steps = 0 end
+     local t = type(obj)
+     if t == "function" then
+         local info = _getinfo and _getinfo(obj, "S")
+         snap.Functions[tostring(obj)] = info and info.source or "LuaClosure"
+     elseif t == "table" then
+         snap.TablesCount = snap.TablesCount + 1
+     end
+ end
+ return snap
+end
+
+local function performMemoryAudit()
+ if not Settings.BackgroundAudit then return end
+ task.spawn(function()
+     pcall(function()
+         local current = takeGCSnapshot()
+         local last = DeepData.MemorySnapshots.LastGCState
+         if not last or not last.Functions then
+             DeepData.MemorySnapshots.LastGCState = current
+             return
+         end
+         local newFn = 0
+         local steps = 0
+         for fn, src in pairs(current.Functions) do
+             steps = steps + 1
+             if steps >= 1500 then task.wait(); steps = 0 end
+             if not last.Functions[fn] then
+                 newFn = newFn + 1
+                 local lsrc = safeLower(src)
+                 if matchAny(lsrc, {"kick", "ban", "admin", "http", "webhook"}) then
+                     logTelemetry("ANOMALY", "Suspicious Closures VM", "В куче создана подозрительная функция: " .. src, "HIGH")
+                 end
+             end
+         end
+         local tabDelta = current.TablesCount - last.TablesCount
+         if newFn > 0 or tabDelta ~= 0 then
+             DeepData.TotalMemoryDeltas = (DeepData.TotalMemoryDeltas or 0) + 1
+             logTelemetry("GC_DELTA", "VM Heap Changed", string.format("Новые функции: +%d, Изменение таблиц: %d", newFn, tabDelta), "MEDIUM")
+         end
+         DeepData.MemorySnapshots.LastGCState = current
+     end)
+ end)
+end
+
+-- --- ИНТЕГРАЦИЯ КНОПКИ CLOUD С SUPABASE ---
 discordBtn.MouseButton1Click:Connect(function()
  discordBtn.Text = "👾 UPLOADING..."
  task.spawn(function()
-     -- Собираем ПОЛНЫЙ, гигантский отчет без ограничений!
+     -- Собираем полный, тяжелый отчет
      local report = fullReportToString()
-     local rawFileName = "Full_Game_Report_" .. tostring(DeepData.PlaceId) .. "_" .. tostring(math.random(1000, 9999)) .. ".lua"
-     
-     -- Кодируем имя файла для URL (заменяем пробелы)
-     local fileName = rawFileName:gsub(" ", "_")
-     
+     local fileName = "Full_Exploit_Report_" .. tostring(DeepData.PlaceId) .. "_" .. tostring(math.random(1000, 9999)) .. ".lua"
      local success, resultMessage = uploadToSupabase(fileName, report)
      if success then
          local downloadLink = "https://" .. SUPABASE_PROJECT_ID .. ".supabase.co/storage/v1/object/public/" .. SUPABASE_BUCKET .. "/" .. fileName
-         
-         -- Копируем прямую ссылку на скачивание файла в буфер обмена!
          copyToClipboard(downloadLink)
-         
          discordBtn.Text = "✅ CLOUD OK"
-         warn("[👾 SUPABASE] Полный отчет (" .. math.floor(#report/1024) .. " KB) успешно залит в Supabase!")
-         warn("[👾 SUPABASE] Прямая ссылка: " .. downloadLink)
+         warn("[👾 CLOUD] Полный отчет успешно залит в Supabase и скопирован в буфер!")
          _origPrint("\n[CLOUD_LINK]: " .. downloadLink)
      else
          discordBtn.Text = "❌ " .. tostring(resultMessage):sub(1, 12):upper()
-         warn("[👾 SUPABASE] Ошибка загрузки: " .. tostring(resultMessage))
+         warn("[👾 CLOUD] Ошибка загрузки: " .. tostring(resultMessage))
      end
-     task.wait(5)
+     task.wait(4)
      discordBtn.Text = "👾 CLOUD"
  end)
 end)
+
 execAllBtn.MouseButton1Click:Connect(function()
  execAllBtn.Text = "🔥 FIRING..."
  task.spawn(function()
@@ -3221,6 +3315,7 @@ execAllBtn.MouseButton1Click:Connect(function()
 end)
 pcall(hookInstanceNew)
 task.spawn(function()
+ DeepData.AuditStartTime = tick()
  runFullAnalysis(true)
  refreshExploits(); refreshAnalyzer(); refreshWorkspaceTree()
 end)
@@ -3240,6 +3335,14 @@ task.spawn(function()
  if tabPanels.spy and tabPanels.spy.Visible then pcall(refreshSpy) end
  end
 end)
+-- --- ЦИКЛ ФОНОВОГО АУДИТА ТЕЛЕМЕТРИИ v5.3 ---
+task.spawn(function()
+ while true do
+     task.wait(15) -- Снятие снимков дельты памяти каждые 15 сек в фоне
+     pcall(performMemoryAudit)
+ end
+end)
+
 local function unloadAll()
  AK.active = false; AK.installed = false
  RemoteSpy.active = false
@@ -3251,5 +3354,5 @@ local function unloadAll()
 end
 _G.GameAnalyzerPro.Unload = unloadAll
 unloadBtn.MouseButton1Click:Connect(unloadAll)
-warn("[GameAnalyzer v5.2 SMART CLIPBOARD] ✅ Загружен!")
-warn("[v5.2] 👾 DISCORD (ЛКМ) — Отправка полного отчёта в формате .lua напрямую в Дискорд!")
+warn("[GameAnalyzer v5.3 SUPABASE] ✅ Загружен!")
+warn("[v5.3] Нажмите кнопку CLOUD для отправки ПОЛНОГО отчета прямо в свое облако Supabase!")
