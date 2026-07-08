@@ -3117,37 +3117,69 @@ end)
 -- ═══════════════════════════════════════════════════════════
 -- НОВАЯ СИСТЕМА ЭКСПОРТА В DISCORD (ОБХОД БУФЕРА ОБМЕНА)
 -- ═══════════════════════════════════════════════════════════
-local DISCORD_PROXY_URL = "https://webhook.lewisakura.com/api/webhooks/1524393077928886403/OFdI2fwZecaobtJK7zaDD-_kSlQrc2uCRBn4a3HhWXAH6zFL1Yp2zWTHStFsWg6UDiNy"
+local DISCORD_PROXY_URL = "https://webhook.newstargeted.com/api/webhooks/1524393077928886403/OFdI2fwZecaobtJK7zaDD-_kSlQrc2uCRBn4a3HhWXAH6zFL1Yp2zWTHStFsWg6UDiNy"
+
 local function sendFileToDiscord(fileName, fileContent)
- if not _httprequest and not game:GetService("HttpService") then
- warn("[👾 DISCORD] Нет HttpService или request API!")
- return false, "API missing"
- end
- local boundary = "----WebKitFormBoundary" .. game:GetService("HttpService"):GenerateGUID(false)
+ local HttpService = game:GetService("HttpService")
+ local boundary = "----WebKitFormBoundary" .. HttpService:GenerateGUID(false)
+ 
+ -- Формируем правильный мультипарт для передачи файла
  local body = "--" .. boundary .. "\r\n" ..
               "Content-Disposition: form-data; name=\"file\"; filename=\"" .. fileName .. "\"\r\n" ..
               "Content-Type: text/plain\r\n\r\n" ..
               fileContent .. "\r\n" ..
               "--" .. boundary .. "--\r\n"
+              
  local headers = {
-     ["Content-Type"] = "multipart/form-data; boundary=" .. boundary
+     ["Content-Type"] = "multipart/form-data; boundary=" .. boundary,
+     ["User-Agent"] = "Roblox/DeltaExploitSuite"
  }
+
  local reqData = {
      Url = DISCORD_PROXY_URL,
      Method = "POST",
      Headers = headers,
      Body = body
  }
- local success, res
+
+ local success, response
+ -- Пытаемся использовать самый мощный HTTP-метод исполнителя (в обход ограничений Roblox)
  if _httprequest then
-     success, res = pcall(_httprequest, reqData)
- else
-     success, res = pcall(function()
-         return game:GetService("HttpService"):PostAsync(DISCORD_PROXY_URL, body, Enum.HttpContentType.ApplicationJson, false, headers)
-     end)
+     success, response = pcall(_httprequest, reqData)
+     if success and type(response) == "table" then
+         if response.StatusCode == 200 or response.StatusCode == 204 then
+             return true, "Success (Executor Request)"
+         else
+             return false, "HTTP " .. tostring(response.StatusCode) .. ": " .. tostring(response.Body)
+         end
+     end
  end
- return success, res
+
+ -- Если не вышло — используем легитимный RequestAsync
+ success, response = pcall(function()
+     return HttpService:RequestAsync(reqData)
+ end)
+ 
+ if success and type(response) == "table" then
+     if response.StatusCode == 200 or response.StatusCode == 204 then
+         return true, "Success (RequestAsync)"
+     else
+         return false, "HTTP " .. tostring(response.StatusCode)
+     end
+ end
+
+ -- Крайний случай - тупой PostAsync
+ success, response = pcall(function()
+     return HttpService:PostAsync(DISCORD_PROXY_URL, body, Enum.HttpContentType.ApplicationJson, false, headers)
+ end)
+ 
+ if success then
+     return true, "Success (PostAsync)"
+ else
+     return false, tostring(response)
+ end
 end
+
 discordBtn.MouseButton1Click:Connect(function()
  discordBtn.Text = "👾 SENDING..."
  task.spawn(function()
@@ -3157,13 +3189,13 @@ discordBtn.MouseButton1Click:Connect(function()
          _G.GA_LastReport = report
      end
      local fileName = "Game_Exploits_" .. tostring(DeepData.PlaceId) .. ".lua"
-     local success, err = sendFileToDiscord(fileName, report)
+     local success, resultMessage = sendFileToDiscord(fileName, report)
      if success then
          discordBtn.Text = "✅ DISCORD OK"
-         warn("[👾 DISCORD] Отчет успешно отправлен на твой вебхук!")
+         warn("[👾 DISCORD] Отчет успешно отправлен на твой вебхук! Проверь канал.")
      else
-         discordBtn.Text = "❌ FAIL: " .. tostring(err):sub(1, 10)
-         warn("[👾 DISCORD] Не удалось отправить файл: " .. tostring(err))
+         discordBtn.Text = "❌ " .. tostring(resultMessage):sub(1, 12):upper()
+         warn("[👾 DISCORD] Ошибка: " .. tostring(resultMessage))
      end
      task.wait(4)
      discordBtn.Text = "👾 DISCORD"
