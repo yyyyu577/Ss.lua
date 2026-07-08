@@ -1944,11 +1944,11 @@ local function fullReportToString()
   sec("📡 BACKGROUND RUNTIME TELEMETRY EVENT LOG")
   for _, entry in ipairs(DeepData.TelemetryEvents) do
    w(string.format(" [%s] (time: %ds) %s -> %s :: %s", 
-    tostring(entry.Priority),
-    math.floor(entry.Time),
-    tostring(entry.Category),
-    tostring(entry.Name),
-    tostring(entry.Detail)
+    tostring(entry.Priority or "LOW"),
+    math.floor(entry.Time or 0),
+    tostring(entry.Category or "INFO"),
+    tostring(entry.Name or "Event"),
+    tostring(entry.Detail or "")
    ))
   end
  end
@@ -3150,13 +3150,13 @@ exportBtn.MouseButton2Click:Connect(function()
 end)
 
 -- ═══════════════════════════════════════════════════════════
--- СИСТЕМА ЭКСПОРТА В SUPABASE STORAGE (ОБХОД ЛИМИТОВ РАЗМЕРА) v5.3
+-- СИСТЕМА СЕГМЕНТИРОВАННОЙ ЗАГРУЗКИ В SUPABASE (ОБХОД GZIP/HTTP 400) v5.3
 -- ═══════════════════════════════════════════════════════════
 local SUPABASE_PROJECT_ID = "earidffeokvqgffyioxa"
 local SUPABASE_BUCKET = "Report"
 local SUPABASE_KEY = "sb_publishable_vAuejesqMghio6T2VFXXVQ_Bx3-6GCv"
 
-local function uploadToSupabase(fileName, fileContent)
+local function uploadSingleChunk(fileName, fileContent)
  local HttpService = game:GetService("HttpService")
  local uploadUrl = "https://" .. SUPABASE_PROJECT_ID .. ".supabase.co/storage/v1/object/" .. SUPABASE_BUCKET .. "/" .. fileName
  
@@ -3181,7 +3181,7 @@ local function uploadToSupabase(fileName, fileContent)
          if response.StatusCode == 200 or response.StatusCode == 201 or response.StatusCode == 204 then
              return true, "Success"
          else
-             return false, "HTTP " .. tostring(response.StatusCode) .. ": " .. tostring(response.Body)
+             return false, "HTTP " .. tostring(response.StatusCode)
          end
      end
  end
@@ -3194,7 +3194,7 @@ local function uploadToSupabase(fileName, fileContent)
      if response.StatusCode == 200 or response.StatusCode == 201 or response.StatusCode == 204 then
          return true, "Success"
      else
-         return false, "HTTP " .. tostring(response.StatusCode) .. " -> " .. tostring(response.Body)
+         return false, "HTTP " .. tostring(response.StatusCode)
      end
  end
 
@@ -3209,94 +3209,65 @@ local function uploadToSupabase(fileName, fileContent)
  end
 end
 
--- --- ФУНКЦИИ ФОНОВОГО АУДИТА (RUNTIME TELEMETRY) ---
-local function logTelemetry(category, name, detail, priority)
- if not Settings.BackgroundAudit then return end
- priority = priority or "LOW"
- local entry = {
-     Time = tick() - (DeepData.AuditStartTime or tick()),
-     Category = category,
-     Name = name,
-     Detail = detail,
-     Priority = priority
- }
- table.insert(DeepData.TelemetryEvents, entry)
- if priority == "CRITICAL" or priority == "HIGH" then
-     _origWarn(string.format("🔬 [TELEMETRY ⚠️ %s] %s :: %s", priority, name, tostring(detail)))
- end
-end
-
-local function takeGCSnapshot()
- if not _getgc then return {} end
- local snap = { Functions = {}, TablesCount = 0 }
- local gc = _getgc(true)
- local steps = 0
- for i, obj in ipairs(gc) do
-     steps = steps + 1
-     if steps >= 1500 then task.wait(); steps = 0 end
-     local t = type(obj)
-     if t == "function" then
-         local info = _getinfo and _getinfo(obj, "S")
-         snap.Functions[tostring(obj)] = info and info.source or "LuaClosure"
-     elseif t == "table" then
-         snap.TablesCount = snap.TablesCount + 1
-     end
- end
- return snap
-end
-
-local function performMemoryAudit()
- if not Settings.BackgroundAudit then return end
- task.spawn(function()
-     pcall(function()
-         local current = takeGCSnapshot()
-         local last = DeepData.MemorySnapshots.LastGCState
-         if not last or not last.Functions then
-             DeepData.MemorySnapshots.LastGCState = current
-             return
-         end
-         local newFn = 0
-         local steps = 0
-         for fn, src in pairs(current.Functions) do
-             steps = steps + 1
-             if steps >= 1500 then task.wait(); steps = 0 end
-             if not last.Functions[fn] then
-                 newFn = newFn + 1
-                 local lsrc = safeLower(src)
-                 if matchAny(lsrc, {"kick", "ban", "admin", "http", "webhook"}) then
-                     logTelemetry("ANOMALY", "Suspicious Closures VM", "В куче создана подозрительная функция: " .. src, "HIGH")
-                 end
-             end
-         end
-         local tabDelta = current.TablesCount - last.TablesCount
-         if newFn > 0 or tabDelta ~= 0 then
-             DeepData.TotalMemoryDeltas = (DeepData.TotalMemoryDeltas or 0) + 1
-             logTelemetry("GC_DELTA", "VM Heap Changed", string.format("Новые функции: +%d, Изменение таблиц: %d", newFn, tabDelta), "MEDIUM")
-         end
-         DeepData.MemorySnapshots.LastGCState = current
-     end)
- end)
-end
-
 -- --- ИНТЕГРАЦИЯ КНОПКИ CLOUD С SUPABASE ---
 discordBtn.MouseButton1Click:Connect(function()
- discordBtn.Text = "👾 UPLOADING..."
+ discordBtn.Text = "👾 PREPARING..."
  task.spawn(function()
-     -- Собираем полный, тяжелый отчет
      local report = fullReportToString()
-     local fileName = "Full_Exploit_Report_" .. tostring(DeepData.PlaceId) .. "_" .. tostring(math.random(1000, 9999)) .. ".lua"
-     local success, resultMessage = uploadToSupabase(fileName, report)
-     if success then
-         local downloadLink = "https://" .. SUPABASE_PROJECT_ID .. ".supabase.co/storage/v1/object/public/" .. SUPABASE_BUCKET .. "/" .. fileName
-         copyToClipboard(downloadLink)
-         discordBtn.Text = "✅ CLOUD OK"
-         warn("[👾 CLOUD] Полный отчет успешно залит в Supabase и скопирован в буфер!")
-         _origPrint("\n[CLOUD_LINK]: " .. downloadLink)
-     else
-         discordBtn.Text = "❌ " .. tostring(resultMessage):sub(1, 12):upper()
-         warn("[👾 CLOUD] Ошибка загрузки: " .. tostring(resultMessage))
+     local totalSize = #report
+     local chunkSize = 95 * 1024 -- Размер куска 95 КБ (строго меньше лимита GZIP в 100 КБ!)
+     local totalChunks = math.ceil(totalSize / chunkSize)
+     
+     local sessionId = tostring(math.random(1000, 9999))
+     local placeId = tostring(DeepData.PlaceId)
+     
+     warn("[👾 CLOUD] Нарезка отчета на " .. totalChunks .. " частей по 95 КБ...")
+     
+     local links = {}
+     local allSuccess = true
+     
+     for part = 1, totalChunks do
+         discordBtn.Text = string.format("👾 CHUNK %d/%d", part, totalChunks)
+         
+         local startPos = ((part - 1) * chunkSize) + 1
+         local endPos = math.min(part * chunkSize, totalSize)
+         local chunkContent = report:sub(startPos, endPos)
+         
+         local chunkFileName = string.format("Report_%s_ID_%s_Part_%d.lua", placeId, sessionId, part)
+         
+         -- Пытаемся залить кусок
+         local success, errMsg = uploadSingleChunk(chunkFileName, chunkContent)
+         if success then
+             local chunkLink = string.format("https://%s.supabase.co/storage/v1/object/public/%s/%s", SUPABASE_PROJECT_ID, SUPABASE_BUCKET, chunkFileName)
+             table.insert(links, chunkLink)
+             print(string.format("✅ [CLOUD] Часть %d/%d успешно залита!", part, totalChunks))
+         else
+             allSuccess = false
+             warn(string.format("❌ [CLOUD] Сбой заливки части %d! Код: %s", part, tostring(errMsg)))
+         end
+         
+         -- Если это не последний кусок, ждем ровно 5 секунд, чтобы разгрузить буфер и избежать флуда
+         if part < totalChunks then
+             task.wait(5.0)
+         end
      end
-     task.wait(4)
+     
+     if allSuccess then
+         -- Копируем ссылку на ПЕРВУЮ часть в буфер обмена (все части пронумерованы, ты легко перейдешь по ним)
+         local mainLink = links[1] or ""
+         copyToClipboard(mainLink)
+         
+         discordBtn.Text = "✅ CLOUD OK"
+         warn("[👾 CLOUD] Все части отчета успешно залиты в Supabase!")
+         for idx, link in ipairs(links) do
+             _origPrint(string.format("Часть %d: %s", idx, link))
+         end
+     else
+         discordBtn.Text = "⚠️ PARTIAL FAIL"
+         warn("[👾 CLOUD] Загрузка некоторых частей завершилась с ошибкой. Проверь логи F9.")
+     end
+     
+     task.wait(5)
      discordBtn.Text = "👾 CLOUD"
  end)
 end)
