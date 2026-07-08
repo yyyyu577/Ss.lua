@@ -1446,6 +1446,7 @@ local function fallbackGCScan()
  end
  end
  end
+ end
  end)
  elseif typeof(v) == "Instance" and (v:IsA("RemoteEvent") or v:IsA("RemoteFunction")) then
  safeInsert(DeepData.GCRemotesFound, v)
