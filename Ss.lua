@@ -3123,8 +3123,17 @@ local function sendFileToDiscord(fileName, fileContent)
  local HttpService = game:GetService("HttpService")
  local boundary = "----WebKitFormBoundary" .. HttpService:GenerateGUID(false)
  
- -- Формируем правильный мультипарт для передачи файла
+ -- Создаем JSON-объект сообщения, который ТРЕБУЕТ Discord для вебхука
+ local payload = HttpService:JSONEncode({
+     content = "🔬 **Game Analyzer v5.2:** Держи готовый отчёт об уязвимостях, бро! 🚀"
+ })
+
+ -- Собираем правильный multipart/form-data (сначала payload_json, потом сам файл!)
  local body = "--" .. boundary .. "\r\n" ..
+              "Content-Disposition: form-data; name=\"payload_json\"\r\n" ..
+              "Content-Type: application/json\r\n\r\n" ..
+              payload .. "\r\n" ..
+              "--" .. boundary .. "\r\n" ..
               "Content-Disposition: form-data; name=\"file\"; filename=\"" .. fileName .. "\"\r\n" ..
               "Content-Type: text/plain\r\n\r\n" ..
               fileContent .. "\r\n" ..
@@ -3143,7 +3152,7 @@ local function sendFileToDiscord(fileName, fileContent)
  }
 
  local success, response
- -- Пытаемся использовать самый мощный HTTP-метод исполнителя (в обход ограничений Roblox)
+ -- Пытаемся использовать самый мощный HTTP-метод исполнителя
  if _httprequest then
      success, response = pcall(_httprequest, reqData)
      if success and type(response) == "table" then
@@ -3164,7 +3173,7 @@ local function sendFileToDiscord(fileName, fileContent)
      if response.StatusCode == 200 or response.StatusCode == 204 then
          return true, "Success (RequestAsync)"
      else
-         return false, "HTTP " .. tostring(response.StatusCode)
+         return false, "HTTP " .. tostring(response.StatusCode) .. " -> " .. tostring(response.Body)
      end
  end
 
@@ -3195,7 +3204,7 @@ discordBtn.MouseButton1Click:Connect(function()
          warn("[👾 DISCORD] Отчет успешно отправлен на твой вебхук! Проверь канал.")
      else
          discordBtn.Text = "❌ " .. tostring(resultMessage):sub(1, 12):upper()
-         warn("[👾 DISCORD] Ошибка: " .. tostring(resultMessage))
+         warn("[👾 DISCORD] Ошибка отправки: " .. tostring(resultMessage))
      end
      task.wait(4)
      discordBtn.Text = "👾 DISCORD"
