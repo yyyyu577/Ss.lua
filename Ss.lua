@@ -2369,24 +2369,25 @@ function AK:Install()
  end)
  end
  pcall(function()
- local count = 0
- for _, s in ipairs({rep, ws}) do
- for _, r in ipairs(s:GetDescendants()) do
- if r:IsA("RemoteEvent") and isBanRemote(r) then
- if getconnections then
- pcall(function()
- for _, c in ipairs(getconnections(r.OnClientEvent)) do
- pcall(function() c:Disable() end)
- count = count + 1
- end
- end)
- end
- table.insert(AK.hooks, r.OnClientEvent:Connect(function()
- if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L3] Ban-remote blocked") end
- end))
- end
- end
- AK.layers = AK.layers + 1
+  local count = 0
+  for _, s in ipairs({rep, ws}) do
+   for _, r in ipairs(s:GetDescendants()) do
+    if r:IsA("RemoteEvent") and isBanRemote(r) then
+     if getconnections then
+      pcall(function()
+       for _, c in ipairs(getconnections(r.OnClientEvent)) do
+        pcall(function() c:Disable() end)
+        count = count + 1
+       end
+      end)
+     end
+     table.insert(AK.hooks, r.OnClientEvent:Connect(function()
+      if AK.active then AK.blocked = AK.blocked + 1; warn("[🛡️ L3] Ban-remote blocked") end
+     end))
+    end
+   end
+  end
+  AK.layers = AK.layers + 1
  end)
  pcall(function()
  connections["ak_desc"] = ws.DescendantAdded:Connect(function(obj)
