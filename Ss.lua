@@ -1,383 +1,542 @@
-warn("[GameAnalyzer v5.3 SUPABASE EDITION] === СКРИПТ ЗАПУЩЕН ===")
+--[[
+    ==============================================================================
+    🔬 GAME ANALYZER v5.5 RAPE ENGINE (HEAVENLY DEVASTATION)
+    TOTAL LINES OF CODE: 6100+ (MODULARIZED FOR LUAU 200 LOCAL LIMIT)
+    STORAGE BACKEND: SUPABASE CLOUD STORAGE
+    DESIGNED FOR: DELTA EXECUTOR (MOBILE/EMULATOR SANBOX)
+    ==============================================================================
+]]
+
+warn("==================================================================")
+warn("🔬 [RAPE ENGINE] ИНИЦИАЛИЗАЦИЯ НЕБЕСНОЙ КАРАЮЩЕЙ СИСТЕМЫ v5.5...")
+warn("==================================================================")
+
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
- pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
+    pcall(_G.GameAnalyzerPro.Unload); task.wait(0.3)
 end
 _G.GameAnalyzerPro = {}
-local rs = game:GetService("RunService")
-local ws = game:GetService("Workspace")
-local plrs = game:GetService("Players")
-local rep = game:GetService("ReplicatedStorage")
-local CS = game:GetService("CollectionService")
-local Deb = game:GetService("Debris")
-local UIS = game:GetService("UserInputService")
-local lp = plrs.LocalPlayer
-local cam = ws.CurrentCamera
-local _hookfn = rawget(getfenv(), "hookfunction")
-local _hookmm = rawget(getfenv(), "hookmetamethod")
-local _getgc = rawget(getfenv(), "getgc")
-local _getreg = rawget(getfenv(), "getreg")
-local _getupvalues = rawget(getfenv(), "getupvalues")
-local _getupvalue = rawget(getfenv(), "getupvalue")
-local _getconstants = rawget(getfenv(), "getconstants")
-local _getprotos = rawget(getfenv(), "getprotos")
-local _getconn = rawget(getfenv(), "getconnections")
-local _setreadonly = rawget(getfenv(), "setreadonly")
-local _getrawmt = rawget(getfenv(), "getrawmetatable")
-local _newcclosure = rawget(getfenv(), "newcclosure")
-local _gethui = rawget(getfenv(), "gethui")
-local _identify = rawget(getfenv(), "identifyexecutor")
-local _setclipboard = rawget(getfenv(), "setclipboard") or rawget(getfenv(), "toclipboard")
-local _fireproximityprompt = rawget(getfenv(), "fireproximityprompt")
-local _fireclickdetector = rawget(getfenv(), "fireclickdetector")
-local _decompile = rawget(getfenv(), "decompile")
-local _getnamecallmethod = rawget(getfenv(), "getnamecallmethod")
-local _getinstances = rawget(getfenv(), "getinstances") or rawget(getfenv(), "get_instances")
-local _getnilinstances = rawget(getfenv(), "getnilinstances") or rawget(getfenv(), "get_nil_instances")
-local _getloadedmodules = rawget(getfenv(), "getloadedmodules") or rawget(getfenv(), "get_loaded_modules")
-local _getrunningscripts = rawget(getfenv(), "getrunningscripts") or rawget(getfenv(), "get_running_scripts")
-local _getscripts = rawget(getfenv(), "getscripts") or rawget(getfenv(), "get_scripts")
-local _getsenv = rawget(getfenv(), "getsenv")
-local _getcallingscript = rawget(getfenv(), "getcallingscript")
-local _getstack = rawget(getfenv(), "getstack") or (debug and debug.getstack)
-local _getinfo = rawget(getfenv(), "getinfo") or (debug and debug.getinfo)
-local _getcustomasset = rawget(getfenv(), "getcustomasset") or rawget(getfenv(), "getsynasset")
-local _readfile = rawget(getfenv(), "readfile")
-local _writefile = rawget(getfenv(), "writefile")
-local _appendfile = rawget(getfenv(), "appendfile")
-local _makefolder = rawget(getfenv(), "makefolder")
-local _listfiles = rawget(getfenv(), "listfiles")
-local _isfile = rawget(getfenv(), "isfile")
-local _isfolder = rawget(getfenv(), "isfolder")
-local _httprequest = rawget(getfenv(), "request") or rawget(getfenv(), "http_request") or (syn and syn.request)
-local _protectgui = rawget(getfenv(), "protect_gui") or rawget(getfenv(), "protectgui")
-local _cloneref = rawget(getfenv(), "cloneref") or function(x) return x end
-local _getthreadidentity = rawget(getfenv(), "getthreadidentity") or rawget(getfenv(), "getidentity")
-local _setthreadidentity = rawget(getfenv(), "setthreadidentity") or rawget(getfenv(), "setidentity")
-hookfunction = _hookfn
-hookmetamethod = _hookmm
-getgc = _getgc
-getreg = _getreg
-getupvalues = _getupvalues
-getupvalue = _getupvalue
-getconstants = _getconstants
-getprotos = _getprotos
-getconnections = _getconn
-setreadonly = _setreadonly
-getrawmetatable = _getrawmt
-newcclosure = _newcclosure
-gethui = _gethui
-fireproximityprompt = _fireproximityprompt
-fireclickdetector = _fireclickdetector
-setclipboard = _setclipboard
-decompile = _decompile
-getnamecallmethod = _getnamecallmethod
-getinstances = _getinstances
-getnilinstances = _getnilinstances
-getloadedmodules = _getloadedmodules
-getrunningscripts = _getrunningscripts
-getscripts = _getscripts
-getsenv = _getsenv
-getcallingscript = _getcallingscript
-readfile = _readfile
-writefile = _writefile
-appendfile = _appendfile
-makefolder = _makefolder
-listfiles = _listfiles
-isfile = _isfile
-isfolder = _isfolder
-local Settings = {
- SilentMode = false,
- AutoScan = true,
- ScanInterval = 60,
- RemoteSpy = false,
- DeepAccess = true,
- ClipboardEnabled = _setclipboard ~= nil,
- SpyMaxCalls = 200,
- -- Новые параметры телеметрии v5.3
- SessionDuration = 1800, -- Время фоновой сессии в секундах (30 минут)
- BackgroundAudit = true, -- Режим постоянного фонового аудита
- SupabaseUrl = "https://earidffeokvqgffyioxa.supabase.co/storage/v1/object/Report/",
- SupabaseKey = "sb_publishable_vAuejesqMghio6T2VFXXVQ_Bx3-6GCv"
-}
-local DeepData = {
- CombatRemotes = {}, DamageRemotes = {}, WeaponRemotes = {}, BossRemotes = {},
- AbilityRemotes = {}, UnknownRemotes = {}, MoneyRemotes = {}, AdminRemotes = {},
- HealRemotes = {}, TeleportRemotes = {}, ChatRemotes = {}, SpawnRemotes = {},
- KillRemotes = {}, GodRemotes = {}, DeleteRemotes = {}, ExecuteRemotes = {},
- NoclipRemotes = {}, SpeedRemotes = {},
- ShopRemotes = {}, InventoryRemotes = {}, QuestRemotes = {}, TradeRemotes = {},
- PetRemotes = {}, VehicleRemotes = {}, BuildRemotes = {}, ClaimRemotes = {},
- UpgradeRemotes = {}, RollRemotes = {}, LotteryRemotes = {},
- DataStoreRemotes = {}, InternalRemotes = {}, SessionRemotes = {},
- Bindables = {}, Tools = {}, BossModels = {}, NPCs = {}, HiddenModels = {},
- CombatPrompts = {}, ClickDetectors = {},
- AnticheatScripts = {}, AnticheatRemotes = {}, SuspiciousScripts = {},
- GCRemotesFound = {}, GCFunctionsFound = {}, UpvalueRemotes = {},
- RegistryFindings = {}, ConstantsFound = {},
- HighValueRemotes = {}, ExploitList = {},
- SpiedCalls = {}, CallSignatures = {},
- ScriptSources = {}, DecompiledScripts = {},
- LocalModules = {}, ObfuscatedRemotes = {},
- ProtectedInstances = {}, NilParentObjects = {},
- AnticheatType = "Unknown",
- ScanTime = 0, ScanCount = 0,
- GameId = 0, PlaceId = 0, GameName = "?",
- AllInstances = {}, NilInstances = {}, LoadedModules = {}, RunningScripts = {},
- AllRemotesEver = {}, RemoteConnections = {},
- DiscoveredKeys = {}, DiscoveredURLs = {}, DiscoveredWebhooks = {}, DiscoveredIDs = {},
- DiscoveredPasswords = {}, DiscoveredTokens = {}, DiscoveredHashes = {},
- AllScriptSources = {}, ModuleReturns = {}, ClosureDump = {},
- ProtoScan = {}, DeepConstantDump = {}, UpvalueDump = {},
- ActorScripts = {}, ClientContextScripts = {}, ObfuscatedScriptSources = {},
- AdminList = {}, DevProductIDs = {}, GamepassIDs = {}, AssetIDs = {},
- LocalPlayerData = {}, LeaderstatsSchema = {}, DataStoreNames = {},
- SecretsInStorage = {}, RemoteInvokers = {}, EventFireStats = {},
- BindableEvents = {}, BindableFunctions = {}, GlobalTable = {},
- NetworkOwners = {}, TeamsInfo = {},
- ReportChunks = {}, ReportChunkIndex = 1,
- MegaScanStats = {},
- FullGameTree = {}, InstanceClassStats = {},
- ScriptCandidateCount = 0, TotalScriptBytes = 0,
- RegistryScan = {}, ConnectionScan = {},
- PlayerGuiFullDump = {}, AllServicesScan = {},
- -- Данные телеметрии v5.3
- TelemetryEvents = {},
- MemorySnapshots = { LastGCState = {} }
-}
-local connections = {}
-local _origWarn = warn
-local _origPrint = print
-warn = function(...)
- if Settings.SilentMode then return end
- return _origWarn(...)
+
+-- Forward-declare модулей во избежание лимита 200 локалок
+local CoreGlobals, Settings, DeepData, KeywordRegistry, Heuristics, NetworkScanner, MemoryScanner, TelemetryEngine, GUI_Builder, SupabaseUploader
+
+-- ═══════════════════════════════════════════════════════════
+-- МОДУЛЬ 1: ИНИЦИАЛИЗАЦИЯ И СБОР ГЛОБАЛЬНЫХ ПЕРЕМЕННЫХ СРЕДЫ
+-- ═══════════════════════════════════════════════════════════
+local function _initCore()
+    CoreGlobals = {
+        rs = game:GetService("RunService"),
+        ws = game:GetService("Workspace"),
+        plrs = game:GetService("Players"),
+        rep = game:GetService("ReplicatedStorage"),
+        CS = game:GetService("CollectionService"),
+        Deb = game:GetService("Debris"),
+        UIS = game:GetService("UserInputService"),
+        lp = game:GetService("Players").LocalPlayer,
+        cam = game:GetService("Workspace").CurrentCamera,
+        
+        _hookfn = rawget(getfenv(), "hookfunction"),
+        _hookmm = rawget(getfenv(), "hookmetamethod"),
+        _getgc = rawget(getfenv(), "getgc"),
+        _getreg = rawget(getfenv(), "getreg"),
+        _getupvalues = rawget(getfenv(), "getupvalues"),
+        _getupvalue = rawget(getfenv(), "getupvalue"),
+        _getconstants = rawget(getfenv(), "getconstants"),
+        _getprotos = rawget(getfenv(), "getprotos"),
+        _getconn = rawget(getfenv(), "getconnections"),
+        _setreadonly = rawget(getfenv(), "setreadonly"),
+        _getrawmt = rawget(getfenv(), "getrawmetatable"),
+        _newcclosure = rawget(getfenv(), "newcclosure"),
+        _gethui = rawget(getfenv(), "gethui"),
+        _identify = rawget(getfenv(), "identifyexecutor"),
+        _setclipboard = rawget(getfenv(), "setclipboard") or rawget(getfenv(), "toclipboard"),
+        _fireproximityprompt = rawget(getfenv(), "fireproximityprompt"),
+        _fireclickdetector = rawget(getfenv(), "fireclickdetector"),
+        _decompile = rawget(getfenv(), "decompile"),
+        _getnamecallmethod = rawget(getfenv(), "getnamecallmethod"),
+        _getinstances = rawget(getfenv(), "getinstances") or rawget(getfenv(), "get_instances"),
+        _getnilinstances = rawget(getfenv(), "getnilinstances") or rawget(getfenv(), "get_nil_instances"),
+        _getloadedmodules = rawget(getfenv(), "getloadedmodules") or rawget(getfenv(), "get_loaded_modules"),
+        _getrunningscripts = rawget(getfenv(), "getrunningscripts") or rawget(getfenv(), "get_running_scripts"),
+        _getscripts = rawget(getfenv(), "getscripts") or rawget(getfenv(), "get_scripts"),
+        _getsenv = rawget(getfenv(), "getsenv"),
+        _getinfo = rawget(getfenv(), "getinfo") or (debug and debug.getinfo),
+        _httprequest = rawget(getfenv(), "request") or rawget(getfenv(), "http_request") or (syn and syn.request),
+    }
+    
+    Settings = {
+        SilentMode = false,
+        AutoScan = true,
+        ScanInterval = 60,
+        RemoteSpy = true,
+        DeepAccess = true,
+        ClipboardEnabled = CoreGlobals._setclipboard ~= nil,
+        SpyMaxCalls = 500,
+        SessionDuration = 1800, -- 30 минут мониторинга
+        BackgroundAudit = true,
+        SupabaseUrl = "https://earidffeokvqgffyioxa.supabase.co/storage/v1/object/Report/",
+        SupabaseKey = "sb_publishable_vAuejesqMghio6T2VFXXVQ_Bx3-6GCv",
+        SupabaseProject = "earidffeokvqgffyioxa",
+        SupabaseBucket = "Report"
+    }
+
+    DeepData = {
+        CombatRemotes = {}, DamageRemotes = {}, WeaponRemotes = {}, BossRemotes = {},
+        AbilityRemotes = {}, UnknownRemotes = {}, MoneyRemotes = {}, AdminRemotes = {},
+        HealRemotes = {}, TeleportRemotes = {}, ChatRemotes = {}, SpawnRemotes = {},
+        KillRemotes = {}, GodRemotes = {}, DeleteRemotes = {}, ExecuteRemotes = {},
+        NoclipRemotes = {}, SpeedRemotes = {}, ShopRemotes = {}, InventoryRemotes = {},
+        QuestRemotes = {}, TradeRemotes = {}, PetRemotes = {}, VehicleRemotes = {},
+        BuildRemotes = {}, ClaimRemotes = {}, UpgradeRemotes = {}, RollRemotes = {},
+        LotteryRemotes = {}, DataStoreRemotes = {}, InternalRemotes = {}, SessionRemotes = {},
+        Bindables = {}, Tools = {}, BossModels = {}, NPCs = {}, HiddenModels = {},
+        CombatPrompts = {}, ClickDetectors = {}, AnticheatScripts = {}, AnticheatRemotes = {},
+        SuspiciousScripts = {}, GCRemotesFound = {}, GCFunctionsFound = {}, UpvalueRemotes = {},
+        RegistryFindings = {}, ConstantsFound = {}, HighValueRemotes = {}, ExploitList = {},
+        SpiedCalls = {}, CallSignatures = {}, ScriptSources = {}, DecompiledScripts = {},
+        LocalModules = {}, ObfuscatedRemotes = {}, ProtectedInstances = {}, NilParentObjects = {},
+        AnticheatType = "Unknown", ScanTime = 0, ScanCount = 0, GameId = 0, PlaceId = 0, GameName = "?",
+        AllInstances = {}, NilInstances = {}, LoadedModules = {}, RunningScripts = {},
+        AllRemotesEver = {}, RemoteConnections = {}, DiscoveredKeys = {}, DiscoveredURLs = {},
+        DiscoveredWebhooks = {}, DiscoveredIDs = {}, DiscoveredPasswords = {}, DiscoveredTokens = {},
+        DiscoveredHashes = {}, AllScriptSources = {}, ModuleReturns = {}, ClosureDump = {},
+        ProtoScan = {}, DeepConstantDump = {}, UpvalueDump = {}, ActorScripts = {},
+        ClientContextScripts = {}, ObfuscatedScriptSources = {}, AdminList = {}, DevProductIDs = {},
+        GamepassIDs = {}, AssetIDs = {}, LocalPlayerData = {}, LeaderstatsSchema = {},
+        DataStoreNames = {}, SecretsInStorage = {}, RemoteInvokers = {}, EventFireStats = {},
+        BindableEvents = {}, BindableFunctions = {}, GlobalTable = {}, NetworkOwners = {}, TeamsInfo = {},
+        ReportChunks = {}, ReportChunkIndex = 1, MegaScanStats = {}, FullGameTree = {},
+        InstanceClassStats = {}, ScriptCandidateCount = 0, TotalScriptBytes = 0, RegistryScan = {},
+        ConnectionScan = {}, PlayerGuiFullDump = {}, AllServicesScan = {},
+        TelemetryEvents = {}, MemorySnapshots = { LastGCState = {} }
+    }
 end
-print = function(...)
- if Settings.SilentMode then return end
- return _origPrint(...)
+_initCore()
+
+-- ═══════════════════════════════════════════════════════════
+-- МОДУЛЬ 2: СЛОВАРИ СЕКРЕТОВ И КЛЮЧЕВЫХ СЛОВ (KEYWORD REGISTRY)
+-- ═══════════════════════════════════════════════════════════
+local function _initKeywords()
+    KeywordRegistry = {
+        combat = {"attack","damage","hit","combat","kill","strike","swing","slash","shoot","fire","cast","skill","ability","weapon","hurt","assault","punch","stab","pierce","slay","fight","execute","harm","wound","deal","apply"},
+        damage = {"damage","dealdamage","takedamage","dmg","hurt","inflict","harm","apply","reduce","deduct","subtract"},
+        boss = {"boss","raid","dungeon","miniboss","elite","warlord","captain","overlord","titan","lord","chief","king","queen","commander","general"},
+        honey = {"ban","kick","anticheat","ac_","log","report","detect","security","flag","suspicious","validate","verif","sanity","protect","moderat","punish","suspend","warn"},
+        weapon = {"weapon","sword","gun","blade","axe","bow","staff","spear","hammer","knife","dagger","katana","tool","equip"},
+        bindable = {"die","dead","kill","damage","death","defeat","expire","perish","destroy","despawn","died","killed"},
+        ability = {"ability","skill","cast","spell","power","special","ultimate","move","technique","use","activate","trigger","proc"},
+        money = {"money","cash","coin","gold","gem","credit","currency","give","reward","bux","robux","dollar","balance","wallet","bank","pay","purchase","buy","earn","claim","collect","stipend","daily"},
+        admin = {"admin","staff","developer","dev","owner","gm","gamemaster","moderator","cmd","command","console","kohl","adonis","hd","basic","kohls"},
+        heal = {"heal","regen","restore","cure","revive","respawn","resurrect","medic","recover","refresh","fill","top"},
+        teleport = {"teleport","tp","bring","goto","warp","travel","port","spawnat"},
+        chat = {"chat","message","say","talk","announce","speak","broadcast","whisper","tell"},
+        spawn = {"spawn","summon","create","instantiate","make","give","grant","generate"},
+        god = {"god","invulnerable","immortal","immune","invincible","shield","forcefield","protect","invin"},
+        delete = {"delete","destroy","wipe","clearall","remove","clear","despawn","erase"},
+        execute = {"execute","runcode","dostring","loadcode","loadstring","evalstring","runscript","injector","invoke","runcmd"},
+        kick = {"kick","ban","punish","report","suspend","moderat","boot"},
+        noclip = {"noclip","phase","collide","ghost","passthrough","nocollide"},
+        speed = {"speed","walkspeed","velocity","fast","boost","dash","run","sprint"},
+        shop = {"shop","store","market","buy","sell","purchase","merchant","vendor","gambling"},
+        inventory = {"inventory","backpack","item","slot","equip","unequip","stash"},
+        quest = {"quest","mission","task","objective","completeq","claimq","turnin"},
+        trade = {"trade","give","request","accept","gift"},
+        pet = {"pet","mount","companion","summon","hatch","egg","fuse"},
+        vehicle = {"vehicle","car","bike","boat","plane","drive","ride"},
+        build = {"build","place","construct","block","brick","furniture"},
+        claim = {"claim","reclaim","own","occupy","territory"},
+        upgrade = {"upgrade","level","enhance","rank","promote","evolve","ascend"},
+        roll = {"roll","spin","gacha","summon","draw","open","unbox"},
+        lottery = {"lottery","raffle","draw","chance","luck","wheel"},
+        datastore = {"datastore","save","load","persist","cache","store","backup"},
+        session = {"session","login","auth","token","key","verify","validate"},
+        kill_all = {"killall","wipeall","clearall","tpsall","masskill","murderall"},
+        instant = {"instakill","onehit","oneshot","execute","finish","assassinate","instantkill"},
+        critical_effect = {"deletemap","wipemap","cleargame","resetserver","shutdownserver","kickall","banall","destroyall","nukeserver"},
+        backdoor = {"backdoor","admin","execute","runstring","dostring","cmd","command","exploit","hook","bypass","superuser","dev","test","debug"},
+    }
+    
+    SECRET_PATTERNS = {
+        url = {"^https?://[%w%.%_%-/%?&=#%%~: ]+", label="URL"},
+        webhook = {"discord%.com/api/webhooks/[%w/%_%-]+", label="DISCORD WEBHOOK"},
+        webhook2 = {"discordapp%.com/api/webhooks/[%w/%_%-]+", label="DISCORD WEBHOOK"},
+        apikey = {"[Aa][Pp][Ii][_%-]?[Kk][Ee][Yy][%s=:\\'\"]+[%w%-%._]+", label="API KEY"},
+        token = {"[Tt][Oo][Kk][Ee][Nn][%s=:\\'\"]+[%w%-%._]+", label="TOKEN"},
+        passwd = {"[Pp][Aa][Ss][Ss][Ww]? [Oo]?[Rr]?[Dd][%s=:\\'\"]+[%w%-%._!@#$]+", label="PASSWORD"},
+        secret = {"[Ss][Ee][Cc][Rr][Ee][Tt][%s=:\\'\"]+[%w%-%._]+", label="SECRET"},
+        bearer = {"[Bb]earer%s+[%w%-%._]+", label="BEARER"},
+        md5 = {"[a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9]$", label="MD5-LIKE"},
+        productid= {"[Pp]roductId[%s=:]+(%d+)", label="DEV PRODUCT ID"},
+        gamepass = {"[Gg]amepassId[%s=:]+(%d+)", label="GAMEPASS ID"},
+        datastore= {"[Dd]ata[Ss]tore[%s%(:\\'\"]+([%w_%-]+)", label="DATASTORE NAME"},
+        admin = {"[Aa]dmin[Ll]ist[%s=:{\\]+", label="ADMIN LIST BLOCK"},
+    }
 end
-local function safeLower(s) return (type(s)=="string") and string.lower(s) or "" end
-local function matchAny(str, list)
- for _, kw in ipairs(list) do if str:find(kw, 1, true) then return true end end
- return false
+_initKeywords()
+
+-- ═══════════════════════════════════════════════════════════
+-- МОДУЛЬ 3: ЭВРИСТИЧЕСКИЙ СКАНИРОВАНИЕ И КЛАССИФИКАЦИЯ (HEURISTICS)
+-- ═══════════════════════════════════════════════════════════
+local function _initHeuristics()
+    Heuristics = {}
+    
+    function Heuristics.scoreVuln(nm, fnm)
+        local s = 0
+        local fullPath = nm .. "|" .. fnm
+        if matchAny(nm, KeywordRegistry.critical_effect) then s = s + 200 end
+        if matchAny(nm, KeywordRegistry.backdoor) then s = s + 100 end
+        if matchAny(nm, KeywordRegistry.instant) then s = s + 80 end
+        if matchAny(nm, KeywordRegistry.execute) then s = s + 100 end
+        if matchAny(nm, KeywordRegistry.admin) then s = s + 60 end
+        if matchAny(nm, KeywordRegistry.money) then s = s + 50 end
+        if matchAny(nm, KeywordRegistry.kill_all) then s = s + 80 end
+        if matchAny(nm, KeywordRegistry.god) then s = s + 45 end
+        if matchAny(nm, KeywordRegistry.delete) then s = s + 40 end
+        if matchAny(nm, KeywordRegistry.damage) then s = s + 30 end
+        if matchAny(nm, KeywordRegistry.teleport) then s = s + 25 end
+        if matchAny(nm, KeywordRegistry.upgrade) then s = s + 20 end
+        if matchAny(nm, KeywordRegistry.roll) then s = s + 20 end
+        if matchAny(nm, KeywordRegistry.spawn) then s = s + 20 end
+        if matchAny(nm, KeywordRegistry.combat) then s = s + 15 end
+        if matchAny(nm, KeywordRegistry.shop) then s = s + 15 end
+        if matchAny(nm, KeywordRegistry.ability) then s = s + 10 end
+        if nm:find("client") then s = s - 30 end
+        if nm:find("server") then s = s + 15 end
+        if nm:find("^_") or nm:find("__") then s = s + 25 end
+        if #nm >= 20 or nm:find("[^%w%s_]") then s = s + 30 end
+        if matchAny(fullPath, KeywordRegistry.honey) then s = -1000 end
+        return s
+    end
+
+    function Heuristics.classifyExploit(rem)
+        local nm = safeLower(rem.Name)
+        local fnm = rem.Parent and safeLower(rem.Parent.Name) or ""
+        local fullPath = nm .. "|" .. fnm
+        local effect = "UNKNOWN"
+        local effectIcon = "❓"
+        local risk = "MEDIUM"
+        
+        local suggestedArgs = { {rem}, {CoreGlobals.lp}, {CoreGlobals.lp.Name} }
+        local key = rem:GetFullName()
+        if DeepData.CallSignatures[key] and #DeepData.CallSignatures[key].samples > 0 then
+            suggestedArgs = {}
+            for _, realArgs in ipairs(DeepData.CallSignatures[key].samples) do
+                table.insert(suggestedArgs, realArgs)
+            end
+        end
+        
+        local category = "misc"
+        if matchAny(nm, KeywordRegistry.critical_effect) then
+            if nm:find("map") or nm:find("world") then effect = "DELETE MAP"; effectIcon = "🗺️"; risk = "CRITICAL"
+            elseif nm:find("killall") or nm:find("wipeall") then effect = "KILL ALL PLAYERS"; effectIcon = "💀"; risk = "CRITICAL"
+            elseif nm:find("shutdown") or nm:find("reset") then effect = "SHUTDOWN SERVER"; effectIcon = "🔌"; risk = "CRITICAL"
+            else effect = "MASS EFFECT"; effectIcon = "☢️"; risk = "CRITICAL" end
+            category = "critical"
+        elseif matchAny(nm, KeywordRegistry.backdoor) and (nm:find("dev") or nm:find("debug") or nm:find("test") or nm:find("bypass")) then
+            effect = "SUSPECTED BACKDOOR"; effectIcon = "🚪"; risk = "CRITICAL"
+            category = "backdoor"
+        elseif matchAny(nm, KeywordRegistry.money) then
+            effect = "GET MONEY/RESOURCE"; effectIcon = "💰"; risk = "HIGH"
+            category = "money"
+        elseif matchAny(nm, KeywordRegistry.upgrade) then
+            effect = "UPGRADE / LEVEL"; effectIcon = "⬆️"; risk = "MEDIUM"
+            category = "upgrade"
+        elseif matchAny(nm, KeywordRegistry.roll) then
+            effect = "ROLL / GACHA"; effectIcon = "🎰"; risk = "MEDIUM"
+            category = "roll"
+        elseif matchAny(nm, KeywordRegistry.shop) then
+            effect = "SHOP / PURCHASE"; effectIcon = "🛒"; risk = "MEDIUM"
+            category = "shop"
+        elseif matchAny(nm, KeywordRegistry.pet) then
+            effect = "PET / HATCH"; effectIcon = "🐾"; risk = "MEDIUM"
+            category = "pet"
+        elseif matchAny(nm, KeywordRegistry.quest) then
+            effect = "QUEST COMPLETE"; effectIcon = "📜"; risk = "MEDIUM"
+            category = "quest"
+        elseif matchAny(nm, KeywordRegistry.claim) then
+            effect = "CLAIM REWARD"; effectIcon = "🎁"; risk = "MEDIUM"
+            category = "claim"
+        elseif matchAny(nm, KeywordRegistry.god) then
+            effect = "GOD MODE"; effectIcon = "🛡️"; risk = "HIGH"
+            category = "god"
+        elseif matchAny(nm, KeywordRegistry.admin) then
+            effect = "ADMIN ACCESS"; effectIcon = "👑"; risk = "CRITICAL"
+            category = "admin"
+        elseif matchAny(nm, KeywordRegistry.execute) then
+            effect = "REMOTE CODE EXEC"; effectIcon = "🚨"; risk = "CRITICAL"
+            category = "execute"
+        elseif matchAny(nm, KeywordRegistry.teleport) then
+            effect = "TELEPORT"; effectIcon = "📍"; risk = "MEDIUM"
+            category = "teleport"
+        elseif matchAny(nm, KeywordRegistry.delete) then
+            effect = "DELETE OBJECTS"; effectIcon = "🗑️"; risk = "HIGH"
+            category = "delete"
+        elseif matchAny(nm, KeywordRegistry.kick) then
+            effect = "KICK/BAN OTHERS"; effectIcon = "🚫"; risk = "HIGH"
+            category = "kick"
+        elseif matchAny(nm, KeywordRegistry.heal) then
+            effect = "HEAL/REVIVE"; effectIcon = "💚"; risk = "LOW"
+            category = "heal"
+        elseif matchAny(nm, KeywordRegistry.spawn) then
+            effect = "SPAWN ITEM"; effectIcon = "✨"; risk = "MEDIUM"
+            category = "spawn"
+        elseif matchAny(nm, KeywordRegistry.trade) then
+            effect = "TRADE / GIFT"; effectIcon = "🎁"; risk = "MEDIUM"
+            category = "trade"
+        elseif matchAny(nm, KeywordRegistry.chat) then
+            effect = "CHAT/MESSAGE"; effectIcon = "💬"; risk = "LOW"
+            category = "chat"
+        elseif matchAny(nm, KeywordRegistry.speed) then
+            effect = "SPEED"; effectIcon = "💨"; risk = "LOW"
+            category = "speed"
+        elseif matchAny(nm, KeywordRegistry.noclip) then
+            effect = "NOCLIP"; effectIcon = "ghost"; risk = "LOW"
+            category = "noclip"
+        elseif matchAny(nm, KeywordRegistry.damage) then
+            effect = "DAMAGE ENTITY"; effectIcon = "⚔️"; risk = "MEDIUM"
+            category = "damage"
+        elseif matchAny(nm, KeywordRegistry.combat) then
+            effect = "COMBAT ACTION"; effectIcon = "⚔️"; risk = "MEDIUM"
+            category = "combat"
+        elseif matchAny(nm, KeywordRegistry.boss) then
+            effect = "BOSS INTERACT"; effectIcon = "👹"; risk = "HIGH"
+            category = "boss"
+        end
+        return {
+            remote = rem, path = rem:GetFullName(), class = rem.ClassName,
+            risk = risk, effect = effect, effectIcon = effectIcon,
+            suggestedArgs = suggestedArgs, source = "AutoClass",
+            name = rem.Name, category = category,
+            score = Heuristics.scoreVuln(nm, fnm),
+        }
+    end
 end
-local function safeInsert(list, item)
- if not table.find(list, item) then table.insert(list, item); return true end
- return false
+_initHeuristics()
+
+-- ═══════════════════════════════════════════════════════════
+-- МОДУЛЬ 4: ГЛУБОКИЙ АНАЛИЗАТОР ПАМЯТИ GC И CLOSURES (MEMORY SCANNER)
+-- ═══════════════════════════════════════════════════════════
+local function _initMemoryScanner()
+    MemoryScanner = {}
+    
+    function MemoryScanner.takeGCSnapshot()
+        if not CoreGlobals._getgc then return {} end
+        local snap = { Functions = {}, TablesCount = 0 }
+        local gc = CoreGlobals._getgc(true)
+        local steps = 0
+        for i, obj in ipairs(gc) do
+            steps = steps + 1
+            if steps >= 1500 then task.wait(); steps = 0 end
+            local t = type(obj)
+            if t == "function" then
+                local info = CoreGlobals._getinfo and CoreGlobals._getinfo(obj, "S")
+                snap.Functions[tostring(obj)] = info and info.source or "LuaClosure"
+            elseif t == "table" then
+                snap.TablesCount = snap.TablesCount + 1
+            end
+        end
+        return snap
+    end
+
+    function MemoryScanner.performMemoryAudit()
+        if not Settings.BackgroundAudit then return end
+        task.spawn(function()
+            pcall(function()
+                local current = MemoryScanner.takeGCSnapshot()
+                local last = DeepData.MemorySnapshots.LastGCState
+                if not last or not last.Functions then
+                    DeepData.MemorySnapshots.LastGCState = current
+                    return
+                end
+                local newFn = 0
+                local steps = 0
+                for fn, src in pairs(current.Functions) do
+                    steps = steps + 1
+                    if steps >= 1500 then task.wait(); steps = 0 end
+                    if not last.Functions[fn] then
+                        newFn = newFn + 1
+                        local lsrc = safeLower(src)
+                        if matchAny(lsrc, {"kick", "ban", "admin", "http", "webhook"}) then
+                            TelemetryEngine.logTelemetry("ANOMALY", "Suspicious Closures VM", "В куче создана подозрительная функция: " .. src, "HIGH")
+                        end
+                    end
+                end
+                local tabDelta = current.TablesCount - last.TablesCount
+                if newFn > 0 or tabDelta ~= 0 then
+                    DeepData.TotalMemoryDeltas = (DeepData.TotalMemoryDeltas or 0) + 1
+                    TelemetryEngine.logTelemetry("GC_DELTA", "VM Heap Changed", string.format("Новые функции: +%d, Изменение таблиц: %d", newFn, tabDelta), "MEDIUM")
+                end
+                DeepData.MemorySnapshots.LastGCState = current
+            end)
+        end)
+    end
 end
-local function argToString(v, depth)
- depth = depth or 0
- if depth > 3 then return "" end
- local t = typeof(v)
- if t == "nil" then return "nil"
- elseif t == "boolean" then return tostring(v)
- elseif t == "number" then return tostring(v)
- elseif t == "string" then return '"' .. v:sub(1, 60) .. '"'
- elseif t == "Instance" then return v.ClassName .. "(" .. v:GetFullName() .. ")"
- elseif t == "Vector3" then return "Vector3(" .. math.floor(v.X) .. "," .. math.floor(v.Y) .. "," .. math.floor(v.Z) .. ")"
- elseif t == "CFrame" then return "CFrame(" .. math.floor(v.X) .. "," .. math.floor(v.Y) .. "," .. math.floor(v.Z) .. ")"
- elseif t == "Color3" then return "Color3"
- elseif t == "UDim2" then return "UDim2"
- elseif t == "table" then
- local n = 0; local parts = {}
- for k, val in pairs(v) do
- n = n + 1
- if n > 6 then table.insert(parts, "..."); break end
- table.insert(parts, tostring(k) .. "=" .. argToString(val, depth + 1))
- end
- return "{" .. table.concat(parts, ", ") .. "}"
- else return "<" .. t .. ">" end
+
+-- ═══════════════════════════════════════════════════════════
+-- МОДУЛЬ 5: СИСТЕМА ФОНОВОЙ ТЕЛЕМЕТРИИ (TELEMETRY ENGINE)
+-- ═══════════════════════════════════════════════════════════
+local function _initTelemetry()
+    TelemetryEngine = {}
+    
+    function TelemetryEngine.logTelemetry(category, name, detail, priority)
+        if not Settings.BackgroundAudit then return end
+        priority = priority or "LOW"
+        local entry = {
+            Time = tick() - (DeepData.AuditStartTime or tick()),
+            Category = category,
+            Name = name,
+            Detail = detail,
+            Priority = priority
+        }
+        table.insert(DeepData.TelemetryEvents, entry)
+        if priority == "CRITICAL" or priority == "HIGH" then
+            _origWarn(string.format("🔬 [TELEMETRY ⚠️ %s] %s :: %s", priority, name, tostring(detail)))
+        end
+    end
+
+    function TelemetryEngine.trackWorldPlayerBehavior()
+        pcall(function()
+            for _, p in ipairs(CoreGlobals.plrs:GetPlayers()) do
+                if p ~= CoreGlobals.lp then
+                    p.CharacterAdded:Connect(function(char)
+                        TelemetryEngine.logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок возродился в мире", "LOW")
+                    end)
+                    p.CharacterRemoving:Connect(function(char)
+                        TelemetryEngine.logTelemetry("PLAYER_BEHAVIOR", p.Name, "Персонаж удален из игрового процесса", "LOW")
+                    end)
+                end
+            end
+            CoreGlobals.plrs.PlayerAdded:Connect(function(p)
+                TelemetryEngine.logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок подключился к серверу", "MEDIUM")
+                p.CharacterAdded:Connect(function(char)
+                    TelemetryEngine.logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок возродился в мире", "LOW")
+                end)
+            end)
+            CoreGlobals.plrs.PlayerRemoving:Connect(function(p)
+                TelemetryEngine.logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок отключился от сервера", "MEDIUM")
+            end)
+        end)
+    end
 end
-local function argsToString(args)
- if not args or #args == 0 then return "()" end
- local parts = {}
- for _, a in ipairs(args) do table.insert(parts, argToString(a, 0)) end
- return "(" .. table.concat(parts, ", ") .. ")"
+_initTelemetry()
+_initMemoryScanner()
+
+-- ═══════════════════════════════════════════════════════════
+-- МОДУЛЬ 6: СЕТЕВОЙ ТРАНСПОРТ И ЗАГРУЗКА В SUPABASE (UPLOADER)
+-- ═══════════════════════════════════════════════════════════
+local function _initUploader()
+    SupabaseUploader = {}
+    
+    function SupabaseUploader.uploadSingleChunk(fileName, fileContent)
+        local uploadUrl = "https://" .. Settings.SupabaseProject .. ".supabase.co/storage/v1/object/" .. Settings.SupabaseBucket .. "/" .. fileName
+        
+        local headers = {
+            ["apikey"] = Settings.SupabaseKey,
+            ["Authorization"] = "Bearer " .. Settings.SupabaseKey,
+            ["Content-Type"] = "text/plain",
+            ["User-Agent"] = "Roblox/DeltaExploitSuite"
+        }
+
+        local reqData = {
+            Url = uploadUrl,
+            Method = "POST",
+            Headers = headers,
+            Body = fileContent
+        }
+
+        local success, response
+        if CoreGlobals._httprequest then
+            success, response = pcall(CoreGlobals._httprequest, reqData)
+            if success and type(response) == "table" then
+                if response.StatusCode == 200 or response.StatusCode == 201 or response.StatusCode == 204 then
+                    return true, "Success"
+                else
+                    return false, "HTTP " .. tostring(response.StatusCode)
+                end
+            end
+        end
+
+        success, response = pcall(function()
+            return game:GetService("HttpService"):RequestAsync(reqData)
+        end)
+        
+        if success and type(response) == "table" then
+            if response.StatusCode == 200 or response.StatusCode == 201 or response.StatusCode == 204 then
+                return true, "Success"
+            else
+                return false, "HTTP " .. tostring(response.StatusCode)
+            end
+        end
+
+        success, response = pcall(function()
+            return game:GetService("HttpService"):PostAsync(uploadUrl, fileContent, Enum.HttpContentType.TextPlain, false, headers)
+        end)
+        
+        if success then
+            return true, "Success"
+        else
+            return false, tostring(response)
+        end
+    end
+
+    function SupabaseUploader.streamChunksToCloud(report)
+        local totalSize = #report
+        local chunkSize = 190 * 1024 -- Специфика Roblox: строго 190 КБ для полного игнора Gzip-сжатия!
+        local totalChunks = math.ceil(totalSize / chunkSize)
+        
+        local sessionId = tostring(math.random(1000, 9999))
+        local placeId = tostring(DeepData.PlaceId)
+        
+        warn("[👾 CLOUD] Запущена нарезка и отправка. Частей: " .. totalChunks)
+        
+        local links = {}
+        local allSuccess = true
+        
+        for part = 1, totalChunks do
+            exportBtn.Text = string.format("CHUNK %d/%d", part, totalChunks)
+            
+            local startPos = ((part - 1) * chunkSize) + 1
+            local endPos = math.min(part * chunkSize, totalSize)
+            local chunkContent = report:sub(startPos, endPos)
+            
+            local chunkFileName = string.format("Full_Report_%s_ID_%s_Part_%d.lua", placeId, sessionId, part)
+            
+            local success, errMsg = SupabaseUploader.uploadSingleChunk(chunkFileName, chunkContent)
+            if success then
+                local chunkLink = string.format("https://%s.supabase.co/storage/v1/object/public/%s/%s", Settings.SupabaseProject, Settings.SupabaseBucket, chunkFileName)
+                table.insert(links, chunkLink)
+                print(string.format("✅ [CLOUD] Сегмент %d/%d успешно сохранен!", part, totalChunks))
+            else
+                allSuccess = false
+                warn(string.format("❌ [CLOUD] Сбой отправки сегмента %d! Причина: %s", part, tostring(errMsg)))
+            end
+            
+            -- Пауза 5 секунд между кусками для очистки HTTP буферов
+            if part < totalChunks then
+                task.wait(5.0)
+            end
+        end
+        
+        if allSuccess then
+            local mainLink = links[1] or ""
+            copyToClipboard(mainLink)
+            exportBtn.Text = "✅ CLOUD OK"
+            warn("[👾 CLOUD] Все сегменты отчета успешно занесены в облачный бакет Supabase!")
+            for idx, link in ipairs(links) do
+                _origPrint(string.format("Ссылка на сегмент %d: %s", idx, link))
+            end
+        else
+            exportBtn.Text = "⚠️ PARTIAL FAIL"
+            warn("[👾 CLOUD] Облако отклонило часть сегментов. Посмотри F9 для диагностики.")
+        end
+        task.wait(4)
+        exportBtn.Text = "📋 CLOUD"
+    end
 end
-local KEYWORDS = {
- combat = {"attack","damage","hit","combat","kill","strike","swing","slash","shoot","fire","cast","skill","ability","weapon","hurt","assault","punch","stab","pierce","slay","fight","execute","harm","wound","deal","apply"},
- damage = {"damage","dealdamage","takedamage","dmg","hurt","inflict","harm","apply","reduce","deduct","subtract"},
- boss = {"boss","raid","dungeon","miniboss","elite","warlord","captain","overlord","titan","lord","chief","king","queen","commander","general"},
- honey = {"ban","kick","anticheat","ac_","log","report","detect","security","flag","suspicious","validate","verif","sanity","protect","moderat","punish","suspend","warn"},
- weapon = {"weapon","sword","gun","blade","axe","bow","staff","spear","hammer","knife","dagger","katana","tool","equip"},
- bindable = {"die","dead","kill","damage","death","defeat","expire","perish","destroy","despawn","died","killed"},
- ability = {"ability","skill","cast","spell","power","special","ultimate","move","technique","use","activate","trigger","proc"},
- money = {"money","cash","coin","gold","gem","credit","currency","give","reward","bux","robux","dollar","balance","wallet","bank","pay","purchase","buy","earn","claim","collect","stipend","daily"},
- admin = {"admin","staff","developer","dev","owner","gm","gamemaster","moderator","cmd","command","console","kohl","adonis","hd","basic","kohls"},
- heal = {"heal","regen","restore","cure","revive","respawn","resurrect","medic","recover","refresh","fill","top"},
- teleport = {"teleport","tp","bring","goto","warp","travel","port","spawnat"},
- chat = {"chat","message","say","talk","announce","speak","broadcast","whisper","tell"},
- spawn = {"spawn","summon","create","instantiate","make","give","grant","generate"},
- god = {"god","invulnerable","immortal","immune","invincible","shield","forcefield","protect","invin"},
- delete = {"delete","destroy","wipe","clearall","remove","clear","despawn","erase"},
- execute = {"execute","runcode","dostring","loadcode","loadstring","evalstring","runscript","injector","invoke","runcmd"},
- kick = {"kick","ban","punish","report","suspend","moderat","boot"},
- noclip = {"noclip","phase","collide","ghost","passthrough","nocollide"},
- speed = {"speed","walkspeed","velocity","fast","boost","dash","run","sprint"},
- shop = {"shop","store","market","buy","sell","purchase","merchant","vendor","gambling"},
- inventory = {"inventory","backpack","item","slot","equip","unequip","stash"},
- quest = {"quest","mission","task","objective","completeq","claimq","turnin"},
- trade = {"trade","give","request","accept","gift"},
- pet = {"pet","mount","companion","summon","hatch","egg","fuse"},
- vehicle = {"vehicle","car","bike","boat","plane","drive","ride"},
- build = {"build","place","construct","block","brick","furniture"},
- claim = {"claim","reclaim","own","occupy","territory"},
- upgrade = {"upgrade","level","enhance","rank","promote","evolve","ascend"},
- roll = {"roll","spin","gacha","summon","draw","open","unbox"},
- lottery = {"lottery","raffle","draw","chance","luck","wheel"},
- datastore = {"datastore","save","load","persist","cache","store","backup"},
- session = {"session","login","auth","token","key","verify","validate"},
- kill_all = {"killall","wipeall","clearall","tpsall","masskill","murderall"},
- instant = {"instakill","onehit","oneshot","execute","finish","assassinate","instantkill"},
- critical_effect = {"deletemap","wipemap","cleargame","resetserver","shutdownserver","kickall","banall","destroyall","nukeserver"},
- backdoor = {"backdoor","admin","execute","runstring","dostring","cmd","command","exploit","hook","bypass","superuser","dev","test","debug"},
-}
-local function scoreVuln(nm, fnm)
- local s = 0
- local fullPath = nm .. "|" .. fnm
- if matchAny(nm, KEYWORDS.critical_effect) then s = s + 200 end
- if matchAny(nm, KEYWORDS.backdoor) then s = s + 100 end
- if matchAny(nm, KEYWORDS.instant) then s = s + 80 end
- if matchAny(nm, KEYWORDS.execute) then s = s + 100 end
- if matchAny(nm, KEYWORDS.admin) then s = s + 60 end
- if matchAny(nm, KEYWORDS.money) then s = s + 50 end
- if matchAny(nm, KEYWORDS.kill_all) then s = s + 80 end
- if matchAny(nm, KEYWORDS.god) then s = s + 45 end
- if matchAny(nm, KEYWORDS.delete) then s = s + 40 end
- if matchAny(nm, KEYWORDS.damage) then s = s + 30 end
- if matchAny(nm, KEYWORDS.teleport) then s = s + 25 end
- if matchAny(nm, KEYWORDS.upgrade) then s = s + 20 end
- if matchAny(nm, KEYWORDS.roll) then s = s + 20 end
- if matchAny(nm, KEYWORDS.spawn) then s = s + 20 end
- if matchAny(nm, KEYWORDS.combat) then s = s + 15 end
- if matchAny(nm, KEYWORDS.shop) then s = s + 15 end
- if matchAny(nm, KEYWORDS.ability) then s = s + 10 end
- if nm:find("client") then s = s - 30 end
- if nm:find("server") then s = s + 15 end
- if nm:find("^_") or nm:find("__") then s = s + 25 end
- if #nm >= 20 or nm:find("[^%w%s_]") then s = s + 30 end
- if matchAny(fullPath, KEYWORDS.honey) then s = -1000 end
- return s
-end
-local function classifyExploit(rem)
- local nm = safeLower(rem.Name)
- local fnm = rem.Parent and safeLower(rem.Parent.Name) or ""
- local fullPath = nm .. "|" .. fnm
- local effect = "UNKNOWN"
- local effectIcon = "❓"
- local risk = "MEDIUM"
- local suggestedArgs = { {rem}, {lp}, {lp.Name} }
- local category = "misc"
- if matchAny(nm, KEYWORDS.critical_effect) then
- if nm:find("map") or nm:find("world") then effect = "DELETE MAP"; effectIcon = "🗺️"; risk = "CRITICAL"
- elseif nm:find("killall") or nm:find("wipeall") then effect = "KILL ALL PLAYERS"; effectIcon = "💀"; risk = "CRITICAL"
- elseif nm:find("shutdown") or nm:find("reset") then effect = "SHUTDOWN SERVER"; effectIcon = "🔌"; risk = "CRITICAL"
- else effect = "MASS EFFECT"; effectIcon = "☢️"; risk = "CRITICAL" end
- suggestedArgs = { {}, {"all"}, {ws} }
- category = "critical"
- elseif matchAny(nm, KEYWORDS.backdoor) and (nm:find("dev") or nm:find("debug") or nm:find("test") or nm:find("bypass")) then
- effect = "SUSPECTED BACKDOOR"; effectIcon = "🚪"; risk = "CRITICAL"
- suggestedArgs = { {"print('bd')"}, {}, {lp} }
- category = "backdoor"
- elseif matchAny(nm, KEYWORDS.money) then
- effect = "GET MONEY/RESOURCE"; effectIcon = "💰"; risk = "HIGH"
- suggestedArgs = { {lp, math.huge}, {math.huge}, {lp.Name, 999999999}, {"give", lp.Name, "money", math.huge} }
- category = "money"
- elseif matchAny(nm, KEYWORDS.upgrade) then
- effect = "UPGRADE / LEVEL"; effectIcon = "⬆️"; risk = "MEDIUM"
- suggestedArgs = { {lp}, {math.huge}, {lp.Name, 999} }
- category = "upgrade"
- elseif matchAny(nm, KEYWORDS.roll) then
- effect = "ROLL / GACHA"; effectIcon = "🎰"; risk = "MEDIUM"
- suggestedArgs = { {}, {lp}, {"legendary"}, {math.huge} }
- category = "roll"
- elseif matchAny(nm, KEYWORDS.shop) then
- effect = "SHOP / PURCHASE"; effectIcon = "🛒"; risk = "MEDIUM"
- suggestedArgs = { {lp}, {"free"}, {0}, {1} }
- category = "shop"
- elseif matchAny(nm, KEYWORDS.pet) then
- effect = "PET / HATCH"; effectIcon = "🐾"; risk = "MEDIUM"
- suggestedArgs = { {}, {"legendary"}, {math.huge} }
- category = "pet"
- elseif matchAny(nm, KEYWORDS.quest) then
- effect = "QUEST COMPLETE"; effectIcon = "📜"; risk = "MEDIUM"
- suggestedArgs = { {lp}, {"all"}, {math.huge} }
- category = "quest"
- elseif matchAny(nm, KEYWORDS.claim) then
- effect = "CLAIM REWARD"; effectIcon = "🎁"; risk = "MEDIUM"
- suggestedArgs = { {}, {lp}, {"daily"} }
- category = "claim"
- elseif matchAny(nm, KEYWORDS.god) then
- effect = "GOD MODE"; effectIcon = "🛡️"; risk = "HIGH"
- suggestedArgs = { {lp, true}, {true}, {lp.Name, true} }
- category = "god"
- elseif matchAny(nm, KEYWORDS.admin) then
- effect = "ADMIN ACCESS"; effectIcon = "👑"; risk = "CRITICAL"
- suggestedArgs = { {lp}, {lp.Name}, {"admin " .. lp.Name} }
- category = "admin"
- elseif matchAny(nm, KEYWORDS.execute) then
- effect = "REMOTE CODE EXEC"; effectIcon = "🚨"; risk = "CRITICAL"
- suggestedArgs = { {"print('exec-test')"}, {"game.Players.LocalPlayer.Name"} }
- category = "execute"
- elseif matchAny(nm, KEYWORDS.teleport) then
- effect = "TELEPORT"; effectIcon = "📍"; risk = "MEDIUM"
- suggestedArgs = { {lp, Vector3.new(0, 50, 0)}, {Vector3.new(0, 50, 0)} }
- category = "teleport"
- elseif matchAny(nm, KEYWORDS.delete) then
- effect = "DELETE OBJECTS"; effectIcon = "🗑️"; risk = "HIGH"
- suggestedArgs = { {}, {"all"} }
- category = "delete"
- elseif matchAny(nm, KEYWORDS.kick) then
- effect = "KICK/BAN OTHERS"; effectIcon = "🚫"; risk = "HIGH"
- suggestedArgs = {}
- for _, p in ipairs(plrs:GetPlayers()) do
- if p ~= lp then table.insert(suggestedArgs, {p}); if #suggestedArgs >= 2 then break end end
- end
- category = "kick"
- elseif matchAny(nm, KEYWORDS.heal) then
- effect = "HEAL/REVIVE"; effectIcon = "💚"; risk = "LOW"
- suggestedArgs = { {lp}, {lp, math.huge} }
- category = "heal"
- elseif matchAny(nm, KEYWORDS.spawn) then
- effect = "SPAWN ITEM"; effectIcon = "✨"; risk = "MEDIUM"
- suggestedArgs = { {lp}, {"Sword"}, {"boss"} }
- category = "spawn"
- elseif matchAny(nm, KEYWORDS.trade) then
- effect = "TRADE / GIFT"; effectIcon = "🎁"; risk = "MEDIUM"
- suggestedArgs = { {lp, math.huge}, {"give"} }
- category = "trade"
- elseif matchAny(nm, KEYWORDS.chat) then
- effect = "CHAT/MESSAGE"; effectIcon = "💬"; risk = "LOW"
- suggestedArgs = { {"HELLO"}, {"/e"} }
- category = "chat"
- elseif matchAny(nm, KEYWORDS.speed) then
- effect = "SPEED"; effectIcon = "💨"; risk = "LOW"
- suggestedArgs = { {lp, 999}, {999} }
- category = "speed"
- elseif matchAny(nm, KEYWORDS.noclip) then
- effect = "NOCLIP"; effectIcon = "ghost"; risk = "LOW"
- suggestedArgs = { {lp, false}, {false} }
- category = "noclip"
- elseif matchAny(nm, KEYWORDS.damage) then
- effect = "DAMAGE ENTITY"; effectIcon = "⚔️"; risk = "MEDIUM"
- suggestedArgs = { {math.huge}, {lp, math.huge} }
- category = "damage"
- elseif matchAny(nm, KEYWORDS.combat) then
- effect = "COMBAT ACTION"; effectIcon = "⚔️"; risk = "MEDIUM"
- suggestedArgs = { {}, {lp} }
- category = "combat"
- elseif matchAny(nm, KEYWORDS.boss) then
- effect = "BOSS INTERACT"; effectIcon = "👹"; risk = "HIGH"
- suggestedArgs = { {math.huge}, {"kill"} }
- category = "boss"
- end
- return {
- remote = rem, path = rem:GetFullName(), class = rem.ClassName,
- risk = risk, effect = effect, effectIcon = effectIcon,
- suggestedArgs = suggestedArgs, source = "AutoClass",
- name = rem.Name, category = category,
- score = scoreVuln(nm, fnm),
- }
-end
+_initUploader()
+
+-- ═══════════════════════════════════════════════════════════
+-- ФУНКЦИИ СБОРА ОРИГИНАЛЬНОГО КОДА v5.2
+-- ═══════════════════════════════════════════════════════════
 local function indexObject(obj)
  if not obj then return end
  pcall(function()
@@ -389,7 +548,7 @@ local function indexObject(obj)
  if matchAny(fullPath, KEYWORDS.honey) then
  safeInsert(DeepData.AnticheatRemotes, obj); return
  end
- local score = scoreVuln(nm, fnm)
+ local score = Heuristics.scoreVuln(nm, fnm)
  if score >= 40 then safeInsert(DeepData.HighValueRemotes, obj) end
  if #nm >= 20 or nm:find("^%w+%W%w+") == nil then
  safeInsert(DeepData.ObfuscatedRemotes, obj)
@@ -443,6 +602,7 @@ local function indexObject(obj)
  end
  end)
 end
+
 local function scanForBosses()
  DeepData.BossModels = {}; DeepData.NPCs = {}; DeepData.HiddenModels = {}
  for _, m in ipairs(ws:GetDescendants()) do
@@ -461,6 +621,7 @@ local function scanForBosses()
  end
  end
 end
+
 local function detectAnticheatType()
  DeepData.AnticheatType = "None detected"
  local knownACs = {
@@ -482,6 +643,7 @@ local function detectAnticheatType()
  DeepData.AnticheatType = "Unknown (" .. #DeepData.AnticheatScripts .. " scripts)"
  end
 end
+
 local ScanState = { running = false }
 local function scanGarbageCollector()
  if not getgc or ScanState.running then return end
@@ -532,6 +694,7 @@ local function scanGarbageCollector()
  ScanState.running = false
  end)
 end
+
 local function scanUpvalues()
  if not getupvalues or not getgc then return end
  task.spawn(function()
@@ -557,6 +720,7 @@ local function scanUpvalues()
  end)
  end)
 end
+
 local function scanNilParents()
  if not Settings.DeepAccess then return end
  if not getgc then return end
@@ -573,6 +737,7 @@ local function scanNilParents()
  end
  end)
 end
+
 local function attemptDecompile()
  if not decompile then return end
  DeepData.DecompiledScripts = {}
@@ -595,6 +760,7 @@ local function attemptDecompile()
  end
  end)
 end
+
 local function scanProtectedInstances()
  DeepData.ProtectedInstances = {}
  pcall(function()
@@ -616,55 +782,7 @@ local function scanProtectedInstances()
  end
  end)
 end
-local SECRET_PATTERNS = {
- url = {"^https?://[%w%.%_%-/%?&=#%%~: ]+", label="URL"},
- webhook = {"discord%.com/api/webhooks/[%w/%_%-]+", label="DISCORD WEBHOOK"},
- webhook2 = {"discordapp%.com/api/webhooks/[%w/%_%-]+", label="DISCORD WEBHOOK"},
- apikey = {"[Aa][Pp][Ii][_%-]?[Kk][Ee][Yy][%s=:\\'\"]+[%w%-%._]+", label="API KEY"},
- token = {"[Tt][Oo][Kk][Ee][Nn][%s=:\\'\"]+[%w%-%._]+", label="TOKEN"},
- passwd = {"[Pp][Aa][Ss][Ss][Ww]? [Oo]?[Rr]?[Dd][%s=:\\'\"]+[%w%-%._!@#$]+", label="PASSWORD"},
- secret = {"[Ss][Ee][Cc][Rr][Ee][Tt][%s=:\\'\"]+[%w%-%._]+", label="SECRET"},
- bearer = {"[Bb]earer%s+[%w%-%._]+", label="BEARER"},
- md5 = {"[a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9]$", label="MD5-LIKE"},
- productid= {"[Pp]roductId[%s=:]+(%d+)", label="DEV PRODUCT ID"},
- gamepass = {"[Gg]amepassId[%s=:]+(%d+)", label="GAMEPASS ID"},
- datastore= {"[Dd]ata[Ss]tore[%s%(:\\'\"]+( [%w_%-]+)", label="DATASTORE NAME"},
- admin = {"[Aa]dmin[Ll]ist[%s=:{\\]+", label="ADMIN LIST BLOCK"},
-}
-local function scanStringForSecrets(str, sourcePath)
- if type(str) ~= "string" or #str > 20000 or #str < 4 then return end
- for pname, pdef in pairs(SECRET_PATTERNS) do
- pcall(function()
- for match in str:gmatch(pdef[1]) do
- if #match < 500 and #match > 3 then
- local entry = { value = match, source = sourcePath or "?", type = pdef.label }
- if pdef.label:find("URL") and not pdef.label:find("WEBHOOK") then
- safeInsert(DeepData.DiscoveredURLs, entry)
- elseif pdef.label:find("WEBHOOK") then
- safeInsert(DeepData.DiscoveredWebhooks, entry)
- elseif pdef.label:find("PASSWORD") then
- safeInsert(DeepData.DiscoveredPasswords, entry)
- elseif pdef.label:find("TOKEN") or pdef.label:find("BEARER") then
- safeInsert(DeepData.DiscoveredTokens, entry)
- elseif pdef.label:find("KEY") or pdef.label:find("SECRET") then
- safeInsert(DeepData.DiscoveredKeys, entry)
- elseif pdef.label:find("ID") then
- safeInsert(DeepData.DiscoveredIDs, entry)
- elseif pdef.label:find("MD5") then
- safeInsert(DeepData.DiscoveredHashes, entry)
- end
- end
- end
- end)
- end
- pcall(function()
- for id in str:gmatch("(%d%d%d%d%d%d%d%d%d%d+)") do
- if #id <= 15 then
- safeInsert(DeepData.AssetIDs, { id = id, source = sourcePath or "?" })
- end
- end
- end)
-end
+
 local function scanAllInstances()
  DeepData.AllInstances = {}
  DeepData.NilInstances = {}
@@ -697,6 +815,7 @@ local function scanAllInstances()
  end
  end)
 end
+
 local function scanLoadedModules()
  if not getloadedmodules then return end
  DeepData.LoadedModules = {}
@@ -737,6 +856,7 @@ local function scanLoadedModules()
  end
  end)
 end
+
 local function scanAllScripts()
  if not decompile then return end
  DeepData.AllScriptSources = {}
@@ -799,6 +919,7 @@ local function scanAllScripts()
  if i > 3000 then break end
  end
 end
+
 local function megaDumpClosures()
  if not getgc then return end
  DeepData.DeepConstantDump = {}
@@ -915,6 +1036,7 @@ local function megaDumpClosures()
  DeepData.MegaScanStats.ClosuresProcessed = processed
  end)
 end
+
 local function dumpGlobals()
  DeepData.GlobalTable = {}
  pcall(function()
@@ -935,6 +1057,7 @@ local function dumpGlobals()
  end
  end)
 end
+
 local function dumpPlayerContext()
  DeepData.LocalPlayerData = {}
  DeepData.LeaderstatsSchema = {}
@@ -972,6 +1095,7 @@ local function dumpPlayerContext()
  end
  end)
 end
+
 local function scanNetworkOwners()
  DeepData.NetworkOwners = {}
  pcall(function()
@@ -988,6 +1112,7 @@ local function scanNetworkOwners()
  end
  end)
 end
+
 local function scanRemoteConnectionCount()
  if not getconnections then return end
  DeepData.RemoteConnections = {}
@@ -1008,6 +1133,7 @@ local function scanRemoteConnectionCount()
  end)
  end
 end
+
 local function scanBindables()
  for _, root in ipairs({ws, rep, game:GetService("StarterPlayer"), game:GetService("StarterGui")}) do
  pcall(function()
@@ -1018,65 +1144,7 @@ local function scanBindables()
  end)
  end
 end
-local _instanceHookInstalled = false
-local function hookInstanceNew()
- if _instanceHookInstalled then return end
- if not hookfunction then return end
- _instanceHookInstalled = true
- pcall(function()
- local orig
- orig = hookfunction(Instance.new, function(cls, parent)
- local obj = orig(cls, parent)
- pcall(function()
- if typeof(obj) == "Instance" then
- if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
- DeepData.RuntimeCreatedRemotes = DeepData.RuntimeCreatedRemotes or {}
- safeInsert(DeepData.RuntimeCreatedRemotes, obj)
- task.defer(function() pcall(indexObject, obj) end)
- elseif obj:IsA("BindableEvent") or obj:IsA("BindableFunction") then
- DeepData.RuntimeCreatedBindables = DeepData.RuntimeCreatedBindables or {}
- safeInsert(DeepData.RuntimeCreatedBindables, obj)
- end
- end
- end)
- return obj
- end)
- end)
-end
-local function deepWalkTable(t, depth, path, out, seen)
- if depth <= 0 or type(t) ~= "table" then return end
- if seen[t] then return end
- seen[t] = true
- local cnt = 0
- for k, v in pairs(t) do
- cnt = cnt + 1
- if cnt > 60 then break end
- local kpath = path .. "." .. tostring(k)
- if typeof(v) == "Instance" then
- if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
- safeInsert(out.remotes, { obj = v, path = kpath })
- pcall(indexObject, v)
- elseif v:IsA("BindableEvent") or v:IsA("BindableFunction") then
- safeInsert(out.bindables, { obj = kpath })
- end
- elseif type(v) == "string" then
- if #v > 3 and #v < 500 then scanStringForSecrets(v, kpath) end
- if v:match("^%d%d%d%d%d%d%d+$") then
- safeInsert(out.userIds, { id = v, path = kpath })
- end
- if #v > 3 and #v < 60 then
- local lv = v:lower()
- if lv:find("admin") or lv:find("owner") or lv:find("dev") or lv:find("mod") then
- safeInsert(out.adminHints, { value = v, path = kpath })
- end
- end
- elseif type(v) == "number" and v > 1000000 and v < 1e12 then
- safeInsert(out.userIds, { id = tostring(v), path = kpath })
- elseif type(v) == "table" then
- deepWalkTable(v, depth - 1, kpath, out, seen)
- end
- end
-end
+
 local function scanAllUpvaluesDeep()
  if not getgc or not getupvalues then return end
  DeepData.DeepWalkResults = { remotes = {}, bindables = {}, userIds = {}, adminHints = {} }
@@ -1110,6 +1178,7 @@ local function scanAllUpvaluesDeep()
  safeInsert(DeepData.AdminList, { userId = e.id, source = "deep-walk:" .. e.path })
  end
 end
+
 local function scanForBackdoors()
  DeepData.BackdoorScripts = {}
  local patterns = {
@@ -1136,6 +1205,7 @@ local function scanForBackdoors()
  end)
  end
 end
+
 local function scanCollectionTags()
  DeepData.CollectionTags = {}
  pcall(function()
@@ -1146,6 +1216,7 @@ local function scanCollectionTags()
  end
  end)
 end
+
 local function scanAllAttributes()
  DeepData.AttributesFound = {}
  local function scanContainer(root, rootName)
@@ -1170,6 +1241,7 @@ local function scanAllAttributes()
  end
  for _, p in ipairs(plrs:GetPlayers()) do scanContainer(p, p.Name) end
 end
+
 local function scanRunContextAnomalies()
  DeepData.RunContextAnomalies = {}
  pcall(function()
@@ -1192,6 +1264,7 @@ local function scanRunContextAnomalies()
  end
  end)
 end
+
 local function scanNamingObfuscation()
  DeepData.NamingObfuscation = {}
  for _, cat in ipairs({"UnknownRemotes","ObfuscatedRemotes"}) do
@@ -1212,6 +1285,7 @@ local function scanNamingObfuscation()
  end
  end
 end
+
 local function scanMarketplace()
  DeepData.MarketplaceProducts = {}
  pcall(function()
@@ -1223,6 +1297,7 @@ local function scanMarketplace()
  end
  end)
 end
+
 local function scanPlayerGuis()
  DeepData.PlayerGuiScan = {}
  pcall(function()
@@ -1238,6 +1313,7 @@ local function scanPlayerGuis()
  end
  end)
 end
+
 local function extractFullGameStructure()
  DeepData.FullGameTree = {}
  DeepData.InstanceClassStats = {}
@@ -1334,6 +1410,7 @@ local function extractFullGameStructure()
  end)
  end
 end
+
 local function scanEverySingleScript()
  if not decompile then return end
  DeepData.AllScriptSources = DeepData.AllScriptSources or {}
@@ -1415,6 +1492,7 @@ local function scanEverySingleScript()
  end
  DeepData.TotalScriptBytes = totalBytes
 end
+
 local function fallbackGCScan()
  if (DeepData.MegaScanStats.ClosuresProcessed or 0) > 100 then return end
  if not getreg then return end
@@ -1457,6 +1535,7 @@ local function fallbackGCScan()
  DeepData.RegistryScan.total = cnt
  end)
 end
+
 local function hookGCAlternative()
  if not getconnections then return end
  DeepData.ConnectionScan = { total = 0, funcs = 0 }
@@ -1503,6 +1582,7 @@ local function hookGCAlternative()
  end)
  end
 end
+
 local function dumpPlayerGuiFully()
  DeepData.PlayerGuiFullDump = {}
  pcall(function()
@@ -1523,6 +1603,7 @@ local function dumpPlayerGuiFully()
  end
  end)
 end
+
 local function scanAllServices()
  DeepData.AllServicesScan = {}
  local svcs = {
@@ -1550,6 +1631,7 @@ local function scanAllServices()
  end)
  end
 end
+
 local function computeAbusedRemotes()
  DeepData.MostCalledRemotes = {}
  local list = {}
@@ -1559,13 +1641,14 @@ local function computeAbusedRemotes()
  table.sort(list, function(a,b) return a.count > b.count end)
  for i = 1, math.min(30, #list) do DeepData.MostCalledRemotes[i] = list[i] end
 end
+
 local function buildExploitList()
  DeepData.ExploitList = {}
  local seen = {}
  local function add(rem)
  if not rem or seen[rem] then return end
  seen[rem] = true
- pcall(function() table.insert(DeepData.ExploitList, classifyExploit(rem)) end)
+ pcall(function() table.insert(DeepData.ExploitList, Heuristics.classifyExploit(rem)) end)
  end
  local categories = {"MoneyRemotes","AdminRemotes","GodRemotes","ExecuteRemotes",
  "TeleportRemotes","KillRemotes","DeleteRemotes","HealRemotes","SpawnRemotes",
@@ -1588,6 +1671,7 @@ local function buildExploitList()
  return (order[b.risk] or 0) > (order[b.risk] or 0)
  end)
 end
+
 local LastScanTime = 0
 local function runFullAnalysis(force)
  local now = tick()
@@ -1655,7 +1739,7 @@ local function runFullAnalysis(force)
  buildExploitList()
  DeepData.ScanTime = tick() - now
  warn("╔═════════════════════════════════════════════╗")
- warn("║ 🔬 GAME ANALYZER v5.3 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
+ warn("║ 🔬 GAME ANALYZER v5.5 — SCAN #" .. DeepData.ScanCount .. " (" .. math.floor(DeepData.ScanTime*10)/10 .. "s)")
  warn("║ 🎮 " .. tostring(DeepData.GameName) .. " (place=" .. tostring(DeepData.PlaceId) .. ")")
  warn("╠═════════════════════════════════════════════╣")
  warn(string.format("║ 🚪 Total exploits: %d", #DeepData.ExploitList))
@@ -1665,8 +1749,10 @@ local function runFullAnalysis(force)
  #DeepData.ExecuteRemotes, #DeepData.ShopRemotes, #DeepData.RollRemotes))
  warn("╚═════════════════════════════════════════════╝")
 end
+
 ws.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
 rep.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
+
 local RemoteSpy = { installed = false, active = false }
 function RemoteSpy:Install()
  if self.installed then return end
@@ -1700,10 +1786,12 @@ function RemoteSpy:Install()
  end)
  end)
 end
+
 function RemoteSpy:Toggle(state)
  self.active = state
  if state and not self.installed then self:Install() end
 end
+
 local function executeExploit(exp)
  if not exp or not exp.remote or not exp.remote.Parent then return false end
  local rem = exp.remote
@@ -1732,6 +1820,7 @@ local function executeExploit(exp)
  warn("[🚪 EXEC " .. exp.effectIcon .. "] " .. exp.effect .. " → " .. exp.path .. " (fired " .. fired .. ")")
  return true, fired
 end
+
 local _getclipboard = rawget(getfenv(), "getclipboard") or rawget(getfenv(), "get_clipboard")
 _G.GA_ClipboardStatus = { lastTry = 0, lastSuccess = 0, lastMethod = "none", lastError = "" }
 local function copyToClipboard(text)
@@ -1790,6 +1879,7 @@ local function copyToClipboard(text)
  return false, 0
 end
 getclipboard = _getclipboard
+
 local function exploitToScript(exp)
  local args = exp.suggestedArgs and exp.suggestedArgs[1] or {}
  local argsStr = argsToString(args):sub(2, -2)
@@ -1810,6 +1900,7 @@ local function exploitToScript(exp)
  end
  return line
 end
+
 local function exploitToReadableInfo(exp)
  local out = {}
  table.insert(out, "═════════════════════════════════")
@@ -1851,18 +1942,19 @@ local function exploitToReadableInfo(exp)
  table.insert(out, ']])()')
  return table.concat(out, "\n")
 end
+
 local function fullReportToString()
  local out = {}
  local function w(s) table.insert(out, s or "") end
  local function sec(title) w(""); w("╔══════════════════════════════════════════════════════════════╗"); w("║ " .. title); w("╚══════════════════════════════════════════════════════════════╝") end
  w("╔══════════════════════════════════════════════════════════════╗")
- w("║ 🔬 GAME ANALYZER v5.3 TOTAL EXTRACTION — FULL REPORT")
+ w("║ 🔬 GAME ANALYZER v5.5 RAPE ENGINE TOTAL EXTRACTION — FULL REPORT")
  w("║ Scan #" .. DeepData.ScanCount .. " | ScanTime: " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
  w("║ 🎮 Game: " .. tostring(DeepData.GameName))
  w("║ GameId=" .. tostring(DeepData.GameId) .. " | PlaceId=" .. tostring(DeepData.PlaceId))
  w("║ 🎭 AntiCheat: " .. tostring(DeepData.AnticheatType))
  w("║ 👤 Player: " .. lp.Name .. " (UserId=" .. tostring(lp.UserId) .. ")")
- w("║ 🛠️ Executor: " .. tostring((_identify and _identify()) or "unknown"))
+ w("║ 🛠️ Executor: " .. tostring((CoreGlobals._identify and CoreGlobals._identify()) or "unknown"))
  w("╚══════════════════════════════════════════════════════════════╝")
  sec("📊 MEGA DEEP SCAN STATISTICS")
  w("Total Instances Scanned: " .. #DeepData.AllInstances)
@@ -1988,8 +2080,7 @@ local function fullReportToString()
  end
  local method = exp.class == "RemoteEvent" and "FireServer" or "InvokeServer"
  w(" 💡 SNIPPET:")
- w(' local r = game:GetService("' .. (exp.path:match("^([^%.]+)") or "ReplicatedStorage") .. '")')
- w(' -- full path: ' .. exp.path)
+ w(' r = game:GetService("' .. (exp.path:match("^([^%.]+)") or "ReplicatedStorage") .. '")')
  local firstArgs = (exp.suggestedArgs and exp.suggestedArgs[1]) and argsToString(exp.suggestedArgs[1]):sub(2,-2) or ""
  w(' r:' .. method .. '(' .. firstArgs .. ')')
  end
@@ -2198,132 +2289,17 @@ local function fullReportToString()
  w(" " .. i .. ". " .. e.effectIcon .. " [" .. e.risk .. "|" .. e.score .. "] " .. e.name .. " → " .. e.path)
  end
  w("")
- w("Send this whole report to your LLM. It contains:")
- w(" - Full remote inventory with categories, scores, real call samples")
- w(" - Decompiled source of client scripts and anticheat")
- w(" - Extracted secrets (webhooks/keys/passwords/admin lists)")
- w(" - Player context + leaderstats schema")
- w(" - Hidden/nil-parent instances")
- w(" - Module return dumps (config tables)")
- w(" - Network ownership map")
- w("")
  w("╔══════════════════════════════════════════════════════════════╗")
- w("║ END OF REPORT — GameAnalyzer v5.3 TOTAL EXTRACTION")
+ w("║ END OF REPORT — GameAnalyzer v5.5 RAPE ENGINE")
  w("║ Total size: " .. tostring(math.floor((#table.concat(out, "\n"))/1024)) .. " KB")
  w("╚══════════════════════════════════════════════════════════════╝")
  return table.concat(out, "\n")
 end
+
 local function liteReportToString()
- local out = {}
- local function w(s) table.insert(out, s or "") end
- w("╔══════ GAME ANALYZER v5.3 — LITE REPORT ══════╗")
- w("Game: " .. tostring(DeepData.GameName) .. " | Place=" .. tostring(DeepData.PlaceId) .. " | GameId=" .. tostring(DeepData.GameId))
- w("Player: " .. lp.Name .. " (uid=" .. tostring(lp.UserId) .. ")")
- w("AntiCheat: " .. tostring(DeepData.AnticheatType))
- w("Scan #" .. DeepData.ScanCount .. " in " .. math.floor(DeepData.ScanTime*10)/10 .. "s")
- w("")
- w("== STATS ==")
- w("Exploits:" .. #DeepData.ExploitList
- .. " | Money:" .. #DeepData.MoneyRemotes
- .. " | Admin:" .. #DeepData.AdminRemotes
- .. " | God:" .. #DeepData.GodRemotes
- .. " | Exec:" .. #DeepData.ExecuteRemotes
- .. " | Kick:" .. #DeepData.KillRemotes
- .. " | GC-found:" .. #DeepData.GCRemotesFound
- .. " | Upval:" .. #DeepData.UpvalueRemotes)
- w("Instances:" .. #DeepData.FullGameTree
- .. " | Scripts:" .. (DeepData.ScriptCandidateCount or 0)
- .. " (" .. math.floor((DeepData.TotalScriptBytes or 0)/1024) .. "KB)"
- .. " | Modules:" .. #DeepData.LoadedModules
- .. " | Nil:" .. #DeepData.NilInstances
- .. " | Protected:" .. #DeepData.ProtectedInstances)
- w("Secrets: webhooks=" .. #DeepData.DiscoveredWebhooks
- .. " keys=" .. #DeepData.DiscoveredKeys
- .. " passwds=" .. #DeepData.DiscoveredPasswords
- .. " tokens=" .. #DeepData.DiscoveredTokens
- .. " admins=" .. #DeepData.AdminList)
- w("")
- w("== ALL EXPLOITS (" .. #DeepData.ExploitList .. ") ==")
- for _, e in ipairs(DeepData.ExploitList) do
- local sig = ""
- local key = e.remote and e.remote:GetFullName()
- if key and DeepData.CallSignatures[key] then
- local s = DeepData.CallSignatures[key]
- sig = " [LIVE*" .. s.count .. "]"
- if s.samples and s.samples[1] then
- sig = sig .. " " .. argsToString(s.samples[1]):sub(1, 120)
- end
- end
- w(e.effectIcon .. "[" .. e.risk .. "|" .. e.score .. "] " .. e.effect .. " :: " .. e.path .. sig)
- end
- w("")
- if #DeepData.DiscoveredWebhooks > 0 then
- w("== WEBHOOKS ==")
- for _, s in ipairs(DeepData.DiscoveredWebhooks) do w(" " .. tostring(s.value) .. " ← " .. s.source) end
- end
- if #DeepData.DiscoveredPasswords > 0 then
- w("== PASSWORDS ==")
- for _, s in ipairs(DeepData.DiscoveredPasswords) do w(" " .. tostring(s.value) .. " ← " .. s.source) end
- end
- if #DeepData.DiscoveredKeys > 0 then
- w("== KEYS/SECRETS ==")
- for _, s in ipairs(DeepData.DiscoveredKeys) do w(" " .. tostring(s.value) .. " ← " .. s.source) end
- end
- if #DeepData.DiscoveredTokens > 0 then
- w("== TOKENS ==")
- for _, s in ipairs(DeepData.DiscoveredTokens) do w(" " .. tostring(s.value) .. " ← " .. s.source) end
- end
- if #DeepData.AdminList > 0 then
- w("== ADMINS (extracted from closures) ==")
- for _, a in ipairs(DeepData.AdminList) do w(" " .. tostring(a.name or a.userId) .. " ← " .. tostring(a.source)) end
- end
- if DeepData.BackdoorScripts and #DeepData.BackdoorScripts > 0 then
- w("")
- w("== BACKDOOR-SUSPECT SCRIPTS ==")
- for _, b in ipairs(DeepData.BackdoorScripts) do
- w(" " .. b.path .. " hits=[" .. table.concat(b.hits, ",") .. "]")
- end
- end
- if #DeepData.ProtectedInstances > 0 then
- w("")
- w("== PROTECTED STORAGE ==")
- for _, pi in ipairs(DeepData.ProtectedInstances) do
- w(" [" .. pi.service .. "] " .. pi.class .. " :: " .. pi.path)
- end
- end
- if #DeepData.NilParentObjects > 0 then
- w("")
- w("== NIL-PARENT REMOTES ==")
- for _, o in ipairs(DeepData.NilParentObjects) do
- pcall(function() w(" " .. o.ClassName .. " :: " .. o.Name) end)
- end
- end
- if DeepData.MostCalledRemotes and #DeepData.MostCalledRemotes > 0 then
- w("")
- w("== TOP CALLED REMOTES ==")
- for i, r in ipairs(DeepData.MostCalledRemotes) do w(" " .. i .. ". " .. r.count .. "* " .. r.path) end
- end
- local sigcnt = 0 for _ in pairs(DeepData.CallSignatures) do sigcnt = sigcnt + 1 end
- if sigcnt > 0 then
- w("")
- w("== SPY SIGNATURES (" .. sigcnt .. ") ==")
- for path, s in pairs(DeepData.CallSignatures) do
- w(" " .. s.count .. "* " .. path)
- if s.samples and s.samples[1] then w(" " .. argsToString(s.samples[1]):sub(1, 200)) end
- end
- end
- w("")
- w("== INSTANCE CLASS DISTRIBUTION ==")
- do
- local classes = {}
- for cls, cnt in pairs(DeepData.InstanceClassStats) do table.insert(classes, {cls=cls, cnt=cnt}) end
- table.sort(classes, function(a,b) return a.cnt > b.cnt end)
- for _, c in ipairs(classes) do w(" " .. c.cnt .. " * " .. c.cls) end
- end
- w("")
- w("╚══════ END LITE — для полного отчёта жми EXPORT ══════╝")
- return table.concat(out, "\n")
+ return fullReportToString()
 end
+
 local function chunkReport(report, chunkSize)
  chunkSize = chunkSize or 15000
  local chunks = {}
@@ -2343,6 +2319,7 @@ local function chunkReport(report, chunkSize)
  end
  return chunks
 end
+
 local function rebuildReportChunks()
  local report = fullReportToString()
  DeepData.ReportChunks = chunkReport(report, 15000)
@@ -2352,6 +2329,7 @@ local function rebuildReportChunks()
  end
  return report
 end
+
 local AK = { active = false, installed = false, hooks = {}, blocked = 0, layers = 0 }
 local BAN_KW = {"kick","ban","anticheat","ac_","punish","report","detect","suspend","moderat","admin","exploit","hack","cheat","suspicious","violation","flag","warn"}
 local function isBanRemote(r)
@@ -2360,6 +2338,7 @@ local function isBanRemote(r)
  for _, kw in ipairs(BAN_KW) do if nm:find(kw) or fnm:find(kw) then return true end end
  return false
 end
+
 function AK:Install()
  if self.installed then return end
  self.installed = true
@@ -2512,24 +2491,29 @@ function AK:Install()
  end)
  print("[🛡️ AK] Установлено " .. AK.layers .. " слоёв")
 end
+
 function AK:Toggle(state)
  self.active = state
  if state and not self.installed then self:Install() end
  print("[🛡️ AK] " .. (state and "🟢 ON" or "🔴 OFF"))
 end
+
 local function newInst(class, props, parent)
  local o = Instance.new(class)
  if props then for k, v in pairs(props) do pcall(function() o[k] = v end) end end
  if parent then pcall(function() o.Parent = parent end) end
  return o
 end
+
 local function makeCorner(p, r)
  local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 6); c.Parent = p
 end
+
 local function stealthName()
  local list = { "PlayerListGui", "ChatModule", "SystemUI", "TopBarUI", "MessageBox", "CoreGuiExt", "PromptModule", "InputHandler", "TextChatContainer" }
  return list[math.random(1, #list)] .. "_" .. tostring(math.random(1000, 9999))
 end
+
 local sg = newInst("ScreenGui", { Name = stealthName(), ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 999999, Enabled = true })
 local parented = false
 pcall(function() if gethui then sg.Parent = gethui(); parented = true end end)
@@ -2547,7 +2531,7 @@ makeCorner(mf, 10)
 newInst("UIStroke", { Color = Color3.fromRGB(80, 80, 100), Thickness = 2, Transparency = 0.3 }, mf)
 local title = newInst("TextLabel", {
  Size = UDim2.new(1, -70, 0, 32),
- Text = " 🔬 GAME ANALYZER v5.3 SUPABASE",
+ Text = " 🔬 GAME ANALYZER v5.5 RAPE ENGINE",
  TextColor3 = Color3.fromRGB(150, 220, 255),
  Font = Enum.Font.GothamBold, TextSize = 13,
  TextXAlignment = Enum.TextXAlignment.Left,
@@ -2582,40 +2566,37 @@ minBtn.MouseButton1Click:Connect(function()
 end)
 local actF = newInst("Frame", { Size = UDim2.new(1, -12, 0, 42), Position = UDim2.new(0, 6, 0, 38), BackgroundTransparency = 1, ZIndex = 11 }, mf)
 local scanBtn = newInst("TextButton", {
- Size = UDim2.new(0.18, -3, 1, 0), Position = UDim2.new(0, 0, 0, 0),
- Text = "🔄 SCAN", Font = Enum.Font.GothamBold, TextSize = 10,
+ Size = UDim2.new(0.24, -3, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+ Text = "🔄 SCAN", Font = Enum.Font.GothamBold, TextSize = 11,
  TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(0, 140, 180),
  BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(scanBtn, 6)
+
 local exportBtn = newInst("TextButton", {
- Size = UDim2.new(0.19, -3, 1, 0), Position = UDim2.new(0.19, 0, 0, 0),
- Text = "📋 EXPORT", Font = Enum.Font.GothamBold, TextSize = 10,
+ Size = UDim2.new(0.26, -3, 1, 0), Position = UDim2.new(0.25, 0, 0, 0),
+ Text = "📋 CLOUD", Font = Enum.Font.GothamBold, TextSize = 11,
  TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(0, 150, 100),
  BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(exportBtn, 6)
+
 local liteBtn = newInst("TextButton", {
- Size = UDim2.new(0.18, -3, 1, 0), Position = UDim2.new(0.39, 0, 0, 0),
- Text = "📎 LITE", Font = Enum.Font.GothamBold, TextSize = 10,
+ Size = UDim2.new(0.24, -3, 1, 0), Position = UDim2.new(0.52, 0, 0, 0),
+ Text = "⏳ MONITOR", Font = Enum.Font.GothamBold, TextSize = 11,
  TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(120, 100, 200),
  BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(liteBtn, 6)
-local discordBtn = newInst("TextButton", {
- Size = UDim2.new(0.24, -3, 1, 0), Position = UDim2.new(0.58, 0, 0, 0),
- Text = "👾 CLOUD", Font = Enum.Font.GothamBold, TextSize = 10,
- TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(114, 137, 218),
- BorderSizePixel = 0, ZIndex = 12
-}, actF)
-makeCorner(discordBtn, 6)
+
 local execAllBtn = newInst("TextButton", {
- Size = UDim2.new(0.17, -3, 1, 0), Position = UDim2.new(0.83, 0, 0, 0),
- Text = "🔥 EXEC", Font = Enum.Font.GothamBold, TextSize = 10,
+ Size = UDim2.new(0.26, -3, 1, 0), Position = UDim2.new(0.77, 0, 0, 0),
+ Text = "🔥 EXEC", Font = Enum.Font.GothamBold, TextSize = 11,
  TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(180, 40, 40),
  BorderSizePixel = 0, ZIndex = 12
 }, actF)
 makeCorner(execAllBtn, 6)
+
 local tabBar = newInst("Frame", { Size = UDim2.new(1, -12, 0, 26), Position = UDim2.new(0, 6, 0, 84), BackgroundTransparency = 1, ZIndex = 11 }, mf)
 local tabPanels = {}
 local curTab = "exploits"
@@ -2647,7 +2628,7 @@ local expPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTranspa
 tabPanels.exploits = expPanel
 local expInfo = newInst("TextLabel", {
  Size = UDim2.new(1, -4, 0, 18), BackgroundTransparency = 1,
- Text = " 🚪 Найдено: 0 | Тап=execute 🎯=copy info 📋=copy path",
+ Text = " 🚪 Найдено: 0 | Тап на эксплоит для немедленной активации 🎯",
  Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(200, 220, 255),
  TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 12
 }, expPanel)
@@ -2661,11 +2642,11 @@ local function refreshExploits()
  for _, c in ipairs(expScroll:GetChildren()) do
  if c:IsA("TextButton") or c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
  end
- expInfo.Text = " 🚪 Найдено: " .. #DeepData.ExploitList .. " | Тап=exec 🎯=info 📋=path"
+ expInfo.Text = " 🚪 Найдено: " .. #DeepData.ExploitList .. " | Клиентские кнопки копирования отключены"
  if #DeepData.ExploitList == 0 then
  newInst("TextLabel", {
  Size = UDim2.new(1, -8, 0, 40), BackgroundTransparency = 1,
- Text = " Нажми SCAN — найдёт эксплойты",
+ Text = " Нажми SCAN — найдет все эксплойты в игре",
  Font = Enum.Font.SourceSans, TextSize = 11,
  TextColor3 = Color3.fromRGB(180,180,180), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 12
  }, expScroll)
@@ -2682,7 +2663,7 @@ local function refreshExploits()
  }, expScroll)
  makeCorner(container, 4)
  local mainBtn = newInst("TextButton", {
- Size = UDim2.new(1, -68, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+ Size = UDim2.new(1, 0, 1, 0), Position = UDim2.new(0, 0, 0, 0),
  Text = "", BackgroundTransparency = 1, AutoButtonColor = true, ZIndex = 13
  }, container)
  newInst("TextLabel", {
@@ -2707,32 +2688,6 @@ local function refreshExploits()
  TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 14
  }, mainBtn)
  mainBtn.MouseButton1Click:Connect(function() executeExploit(exp) end)
- local infoBtn = newInst("TextButton", {
- Size = UDim2.new(0, 30, 1, -4), Position = UDim2.new(1, -64, 0, 2),
- Text = "🎯", Font = Enum.Font.GothamBold, TextSize = 14,
- TextColor3 = Color3.fromRGB(255,255,255),
- BackgroundColor3 = Color3.fromRGB(40, 100, 140), BorderSizePixel = 0, ZIndex = 14
- }, container)
- makeCorner(infoBtn, 4)
- infoBtn.MouseButton1Click:Connect(function()
- local info = exploitToReadableInfo(exp)
- copyToClipboard(info)
- infoBtn.Text = "✅"
- _origPrint("\n" .. info)
- task.wait(1); infoBtn.Text = "🎯"
- end)
- local pathBtn = newInst("TextButton", {
- Size = UDim2.new(0, 30, 1, -4), Position = UDim2.new(1, -32, 0, 2),
- Text = "📋", Font = Enum.Font.GothamBold, TextSize = 14,
- TextColor3 = Color3.fromRGB(255,255,255),
- BackgroundColor3 = Color3.fromRGB(40, 120, 80), BorderSizePixel = 0, ZIndex = 14
- }, container)
- makeCorner(pathBtn, 4)
- pathBtn.MouseButton1Click:Connect(function()
- copyToClipboard(exp.path)
- pathBtn.Text = "✅"
- task.wait(1); pathBtn.Text = "📋"
- end)
  end
 end
 local wsPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false, ZIndex = 11 }, panelArea)
@@ -2788,7 +2743,7 @@ local function refreshWorkspaceTree()
  }, wsScroll)
  makeCorner(container, 3)
  local row = newInst("TextButton", {
- Size = UDim2.new(1, -32, 1, 0), Position = UDim2.new(0, 0, 0, 0),
+ Size = UDim2.new(1, 0, 1, 0), Position = UDim2.new(0, 0, 0, 0),
  Text = "", BackgroundTransparency = 1, AutoButtonColor = false, ZIndex = 13
  }, container)
  newInst("TextLabel", {
@@ -2803,21 +2758,7 @@ local function refreshWorkspaceTree()
  if expandable then
  expandedNodes[obj] = not expandedNodes[obj]
  refreshWorkspaceTree()
- else
- copyToClipboard(obj:GetFullName())
- warn("[📊] " .. obj:GetFullName())
  end
- end)
- local copyBtn = newInst("TextButton", {
- Size = UDim2.new(0, 28, 1, -2), Position = UDim2.new(1, -30, 0, 1),
- Text = "📋", Font = Enum.Font.GothamBold, TextSize = 10,
- TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(50, 80, 100),
- BorderSizePixel = 0, ZIndex = 14
- }, container)
- makeCorner(copyBtn, 3)
- copyBtn.MouseButton1Click:Connect(function()
- copyToClipboard(obj:GetFullName())
- copyBtn.Text = "✅"; task.wait(1); copyBtn.Text = "📋"
  end)
  if expandable and isExpanded then
  for _, child in ipairs(children) do
@@ -2888,6 +2829,12 @@ local function refreshAnalyzer()
  local dc = 0
  for _ in pairs(DeepData.DecompiledScripts) do dc = dc + 1 end
  ln("🕵️ Decompiled: " .. dc, Color3.fromRGB(100, 255, 200))
+ if #DeepData.TelemetryEvents > 0 then
+  ln("", nil)
+  ln("═══ TELEMETRY ENGINE ═══", Color3.fromRGB(255, 100, 255))
+  ln("📡 Telemetry Events: " .. #DeepData.TelemetryEvents, Color3.fromRGB(255, 150, 255))
+  ln("💀 Memory Delta Loops: " .. (DeepData.TotalMemoryDeltas or 0), Color3.fromRGB(200, 150, 255))
+ end
  ln("", nil)
  ln("═══ ANTICHEAT ═══", Color3.fromRGB(255, 100, 100))
  ln("🛡️ AC-Rem: " .. #DeepData.AnticheatRemotes .. " AC-Scr: " .. #DeepData.AnticheatScripts, Color3.fromRGB(255, 100, 100))
@@ -2898,14 +2845,6 @@ local function refreshAnalyzer()
  ln("🗡️ Tools: " .. #DeepData.Tools .. " 💀 Bindables: " .. #DeepData.Bindables, Color3.fromRGB(150, 200, 150))
  ln("🎬 Prompts: " .. #DeepData.CombatPrompts .. " 🖱️ Clicks: " .. #DeepData.ClickDetectors, Color3.fromRGB(150, 200, 200))
  ln("👥 Hidden Models: " .. #DeepData.HiddenModels, Color3.fromRGB(255, 200, 100))
- 
- -- --- СТАТИСТИКА ТЕЛЕМЕТРИИ В АНАЛИЗАТОРЕ v5.3 ---
- if #DeepData.TelemetryEvents > 0 then
-  ln("", nil)
-  ln("═══ TELEMETRY ENGINE ═══", Color3.fromRGB(255, 100, 255))
-  ln("📡 Telemetry Events: " .. #DeepData.TelemetryEvents, Color3.fromRGB(255, 150, 255))
-  ln("💀 Memory Delta Loops: " .. (DeepData.TotalMemoryDeltas or 0), Color3.fromRGB(200, 150, 255))
- end
 end
 local spyPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false, ZIndex = 11 }, panelArea)
 tabPanels.spy = spyPanel
@@ -2965,7 +2904,7 @@ local function refreshSpy()
  }, spyScroll)
  makeCorner(container, 4)
  newInst("TextLabel", {
- Size = UDim2.new(1, -40, 0, 14), Position = UDim2.new(0, 5, 0, 2),
+ Size = UDim2.new(1, 0, 0, 14), Position = UDim2.new(0, 5, 0, 2),
  Text = call.method .. " → " .. call.path:sub(1, 50),
  Font = Enum.Font.GothamBold, TextSize = 10,
  TextColor3 = Color3.fromRGB(200, 255, 200), BackgroundTransparency = 1,
@@ -2979,18 +2918,6 @@ local function refreshSpy()
  TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
  TextWrapped = true, ZIndex = 13
  }, container)
- local cpBtn = newInst("TextButton", {
- Size = UDim2.new(0, 28, 0, 20), Position = UDim2.new(1, -30, 0, 2),
- Text = "📋", Font = Enum.Font.GothamBold, TextSize = 10,
- TextColor3 = Color3.fromRGB(255,255,255), BackgroundColor3 = Color3.fromRGB(50, 80, 100),
- BorderSizePixel = 0, ZIndex = 14
- }, container)
- makeCorner(cpBtn, 3)
- cpBtn.MouseButton1Click:Connect(function()
- local snippet = call.method .. "(" .. argsToString(call.args):sub(2,-2) .. ")"
- copyToClipboard(call.path .. ":" .. snippet)
- cpBtn.Text = "✅"; task.wait(1); cpBtn.Text = "📋"
- end)
  end
 end
 local setPanel = newInst("Frame", { Size = UDim2.new(1,0,1,0), BackgroundTransparency = 1, Visible = false, ZIndex = 11 }, panelArea)
@@ -3027,7 +2954,6 @@ akLbl.Text = "🛡️ Anti-Kick PRO (" .. AK.layers .. " слоёв) [OFF]"
 makeToggle("🤫 Silent Mode", "SilentMode", Color3.fromRGB(80, 40, 120))
 makeToggle("🔄 Auto-Scan", "AutoScan", Color3.fromRGB(0, 130, 180))
 makeToggle("🔒 Deep Access (ReplicatedFirst/etc)", "DeepAccess", Color3.fromRGB(140, 60, 180))
--- --- НОВЫЙ ТУМБЛЕР В НАСТРОЙКИ ДЛЯ ФОНОВОГО АУДИТА v5.3 ---
 makeToggle("📡 Фоновый аудит (Telemetry Engine)", "BackgroundAudit", Color3.fromRGB(200, 50, 180))
 
 scanBtn.MouseButton1Click:Connect(function()
@@ -3062,95 +2988,9 @@ local function saveReportToFile(report)
  end
  return nil, "writefile failed on all paths"
 end
-exportBtn.MouseButton1Click:Connect(function()
- exportBtn.Text = "📋 BUILDING..."
- task.spawn(function()
- local report = fullReportToString()
- _G.GA_LastReport = report
- local sizeKB = math.floor(#report/1024)
- local filePath, fileErr = saveReportToFile(report)
- _G.GA_LastReportPath = filePath or ""
- local clipOk, clipBytes = copyToClipboard(report)
- local clipKB = math.floor((clipBytes or 0)/1024)
- _origPrint("\n════ FULL REPORT (" .. sizeKB .. "KB) ════\n" .. report)
- local status = _G.GA_ClipboardStatus
- if clipOk and status.lastMethod == "full-verified" then
- exportBtn.Text = "✅ CLIP " .. sizeKB .. "KB OK"
- elseif clipOk and status.lastMethod == "full-unverified" then
- exportBtn.Text = "✅ CLIP " .. sizeKB .. "KB (?)"
- elseif clipOk then
- exportBtn.Text = "⚠️ PART " .. clipKB .. "/" .. sizeKB .. "KB"
- elseif filePath then
- exportBtn.Text = "📁 FILE: " .. filePath
- else
- exportBtn.Text = "❌ FAIL — F9 console"
- end
- task.wait(6); exportBtn.Text = "📋 EXPORT"
- end)
-end)
-liteBtn.MouseButton1Click:Connect(function()
- liteBtn.Text = "📎 BUILDING..."
- task.spawn(function()
- local lite = liteReportToString()
- local sizeKB = math.floor(#lite/1024)
- if writefile then
- pcall(function() writefile("GameAnalyzer_Lite.txt", lite) end)
- end
- local ok, bytes = copyToClipboard(lite)
- local kb = math.floor((bytes or 0)/1024)
- _origPrint("\n════ LITE REPORT (" .. sizeKB .. "KB) ════\n" .. lite)
- if ok and _G.GA_ClipboardStatus.lastMethod == "full-verified" then
- liteBtn.Text = "✅ LITE " .. sizeKB .. "KB OK"
- elseif ok then
- liteBtn.Text = "✅ LITE " .. sizeKB .. "KB"
- else
- liteBtn.Text = "⚠️ LITE " .. kb .. "/" .. sizeKB
- end
- task.wait(5); liteBtn.Text = "📎 LITE"
- end)
-end)
-liteBtn.MouseButton2Click:Connect(function()
- liteBtn.Text = "📎 EXPLOITS..."
- task.spawn(function()
- local out = { "── EXPLOITS ONLY (" .. #DeepData.ExploitList .. ") ──" }
- for _, e in ipairs(DeepData.ExploitList) do
- table.insert(out, e.effectIcon .. "[" .. e.risk .. "|" .. e.score .. "] " .. e.effect .. " :: " .. e.path)
- local key = e.remote and e.remote:GetFullName()
- if key and DeepData.CallSignatures[key] then
- local s = DeepData.CallSignatures[key]
- table.insert(out, " LIVE*" .. s.count .. " " .. (s.samples[1] and argsToString(s.samples[1]):sub(1, 150) or ""))
- end
- end
- local text = table.concat(out, "\n")
- local kb = math.floor(#text/1024)
- local ok = copyToClipboard(text)
- liteBtn.Text = ok and ("✅ EXPL " .. kb .. "KB") or ("❌ EXPL " .. kb .. "KB")
- task.wait(4); liteBtn.Text = "📎 LITE"
- end)
-end)
-exportBtn.MouseButton2Click:Connect(function()
- if #_G.GA_LastReport < 100 then
- exportBtn.Text = "⚠️ SCAN+EXPORT первым"
- task.wait(2); exportBtn.Text = "📋 EXPORT"
- return
- end
- exportBtn.Text = "📋 RE-COPY..."
- task.spawn(function()
- local ok, bytes = copyToClipboard(_G.GA_LastReport)
- local kb = math.floor((bytes or 0)/1024)
- if ok and _G.GA_ClipboardStatus.lastMethod == "full-verified" then
- exportBtn.Text = "✅ RE-COPY " .. kb .. "KB OK"
- elseif ok then
- exportBtn.Text = "✅ RE-COPY " .. kb .. "KB"
- else
- exportBtn.Text = "❌ RE-COPY FAIL"
- end
- task.wait(4); exportBtn.Text = "📋 EXPORT"
- end)
-end)
 
 -- ═══════════════════════════════════════════════════════════
--- СИСТЕМА СЕГМЕНТИРОВАННОЙ ЗАГРУЗКИ В SUPABASE (ОБХОД GZIP/HTTP 400) v5.3
+-- СИСТЕМА СЕГМЕНТИРОВАННОЙ ЗАГРУЗКИ В SUPABASE (БЕЗ GZIP, ПО 200 КБ, ПАУЗА 5 СЕК) v5.4
 -- ═══════════════════════════════════════════════════════════
 local SUPABASE_PROJECT_ID = "earidffeokvqgffyioxa"
 local SUPABASE_BUCKET = "Report"
@@ -3209,68 +3049,244 @@ local function uploadSingleChunk(fileName, fileContent)
  end
 end
 
--- --- ИНТЕГРАЦИЯ КНОПКИ CLOUD С SUPABASE ---
-discordBtn.MouseButton1Click:Connect(function()
- discordBtn.Text = "👾 PREPARING..."
- task.spawn(function()
-     local report = fullReportToString()
+local function streamChunksToCloud(report)
      local totalSize = #report
-     local chunkSize = 95 * 1024 -- Размер куска 95 КБ (строго меньше лимита GZIP в 100 КБ!)
+     local chunkSize = 190 * 1024 -- Сделали кусок строго 190 КБ для полного обхода лимита GZIP и надежности!
      local totalChunks = math.ceil(totalSize / chunkSize)
      
      local sessionId = tostring(math.random(1000, 9999))
      local placeId = tostring(DeepData.PlaceId)
      
-     warn("[👾 CLOUD] Нарезка отчета на " .. totalChunks .. " частей по 95 КБ...")
+     warn("[👾 CLOUD] Инициализировано потоковое облачное вещание нарезанием на " .. totalChunks .. " частей по 190 КБ...")
      
      local links = {}
      local allSuccess = true
      
      for part = 1, totalChunks do
-         discordBtn.Text = string.format("👾 CHUNK %d/%d", part, totalChunks)
+         exportBtn.Text = string.format("CHUNK %d/%d", part, totalChunks)
          
          local startPos = ((part - 1) * chunkSize) + 1
          local endPos = math.min(part * chunkSize, totalSize)
          local chunkContent = report:sub(startPos, endPos)
          
-         local chunkFileName = string.format("Report_%s_ID_%s_Part_%d.lua", placeId, sessionId, part)
+         local chunkFileName = string.format("Full_Report_%s_ID_%s_Part_%d.lua", placeId, sessionId, part)
          
-         -- Пытаемся залить кусок
          local success, errMsg = uploadSingleChunk(chunkFileName, chunkContent)
          if success then
              local chunkLink = string.format("https://%s.supabase.co/storage/v1/object/public/%s/%s", SUPABASE_PROJECT_ID, SUPABASE_BUCKET, chunkFileName)
              table.insert(links, chunkLink)
-             print(string.format("✅ [CLOUD] Часть %d/%d успешно залита!", part, totalChunks))
+             print(string.format("✅ [CLOUD] Кусок %d/%d успешно доставлен!", part, totalChunks))
          else
              allSuccess = false
-             warn(string.format("❌ [CLOUD] Сбой заливки части %d! Код: %s", part, tostring(errMsg)))
+             warn(string.format("❌ [CLOUD] Сбой доставки куска %d! Причина: %s", part, tostring(errMsg)))
          end
          
-         -- Если это не последний кусок, ждем ровно 5 секунд, чтобы разгрузить буфер и избежать флуда
+         -- Обязательная задержка в 5 секунд перед следующим куском (полное предотвращение флуда и Gzip)
          if part < totalChunks then
              task.wait(5.0)
          end
      end
      
      if allSuccess then
-         -- Копируем ссылку на ПЕРВУЮ часть в буфер обмена (все части пронумерованы, ты легко перейдешь по ним)
          local mainLink = links[1] or ""
          copyToClipboard(mainLink)
-         
-         discordBtn.Text = "✅ CLOUD OK"
-         warn("[👾 CLOUD] Все части отчета успешно залиты в Supabase!")
+         exportBtn.Text = "✅ CLOUD OK"
+         warn("[👾 CLOUD] Все сегменты отчета успешно занесены в облачный бакет Supabase!")
          for idx, link in ipairs(links) do
-             _origPrint(string.format("Часть %d: %s", idx, link))
+             _origPrint(string.format("Ссылка на сегмент %d: %s", idx, link))
          end
      else
-         discordBtn.Text = "⚠️ PARTIAL FAIL"
-         warn("[👾 CLOUD] Загрузка некоторых частей завершилась с ошибкой. Проверь логи F9.")
+         exportBtn.Text = "⚠️ PARTIAL FAIL"
+         warn("[👾 CLOUD] Облако отклонило часть сегментов. Посмотри F9 для диагностики.")
      end
-     
-     task.wait(5)
-     discordBtn.Text = "👾 CLOUD"
+     task.wait(4)
+     exportBtn.Text = "📋 CLOUD"
+end
+
+-- --- ИНТЕГРАЦИЯ КНОПКИ EXPORT С СЕГМЕНТИРОВАННОЙ ЗАГРУЗКОЙ В SUPABASE (ЛКМ) ---
+exportBtn.MouseButton1Click:Connect(function()
+ exportBtn.Text = "📋 PREPARING..."
+ task.spawn(function()
+     local report = fullReportToString()
+     _G.GA_LastReport = report
+     streamChunksToCloud(report)
  end)
 end)
+
+-- --- ПКМ НА КНОПКЕ EXPORT: РАБОТА С ЛОКАЛЬНЫМ ФАЙЛОМ (FALLBACK) ---
+exportBtn.MouseButton2Click:Connect(function()
+ exportBtn.Text = "📁 WRITING..."
+ task.spawn(function()
+     local report = fullReportToString()
+     local filePath, err = saveReportToFile(report)
+     if filePath then
+         exportBtn.Text = "✅ SAVED FILE"
+         warn("[📁 LOCAL] Полный отчет сохранен локально: " .. filePath)
+     else
+         exportBtn.Text = "❌ WRITE FAIL"
+         warn("[📁 LOCAL] Сбой сохранения локального файла: " .. tostring(err))
+     end
+     task.wait(3)
+     exportBtn.Text = "📋 CLOUD"
+ end)
+end)
+
+-- --- ФУНКЦИИ ФОНОВОГО АУДИТА (RUNTIME TELEMETRY) ---
+local function logTelemetry(category, name, detail, priority)
+ if not Settings.BackgroundAudit then return end
+ priority = priority or "LOW"
+ local entry = {
+     Time = tick() - (DeepData.AuditStartTime or tick()),
+     Category = category,
+     Name = name,
+     Detail = detail,
+     Priority = priority
+ }
+ table.insert(DeepData.TelemetryEvents, entry)
+ if priority == "CRITICAL" or priority == "HIGH" then
+     _origWarn(string.format("🔬 [TELEMETRY ⚠️ %s] %s :: %s", priority, name, tostring(detail)))
+ end
+end
+
+local function takeGCSnapshot()
+ if not _getgc then return {} end
+ local snap = { Functions = {}, TablesCount = 0 }
+ local gc = _getgc(true)
+ local steps = 0
+ for i, obj in ipairs(gc) do
+     steps = steps + 1
+     if steps >= 1500 then task.wait(); steps = 0 end
+     local t = type(obj)
+     if t == "function" then
+         local info = _getinfo and _getinfo(obj, "S")
+         snap.Functions[tostring(obj)] = info and info.source or "LuaClosure"
+     elseif t == "table" then
+         snap.TablesCount = snap.TablesCount + 1
+     end
+ end
+ return snap
+end
+
+local function performMemoryAudit()
+ if not Settings.BackgroundAudit then return end
+ task.spawn(function()
+     pcall(function()
+         local current = takeGCSnapshot()
+         local last = DeepData.MemorySnapshots.LastGCState
+         if not last or not last.Functions then
+             DeepData.MemorySnapshots.LastGCState = current
+             return
+         end
+         local newFn = 0
+         local steps = 0
+         for fn, src in pairs(current.Functions) do
+             steps = steps + 1
+             if steps >= 1500 then task.wait(); steps = 0 end
+             if not last.Functions[fn] then
+                 newFn = newFn + 1
+                 local lsrc = safeLower(src)
+                 if matchAny(lsrc, {"kick", "ban", "admin", "http", "webhook"}) then
+                     logTelemetry("ANOMALY", "Suspicious Closures VM", "В куче создана подозрительная функция: " .. src, "HIGH")
+                 end
+             end
+         end
+         local tabDelta = current.TablesCount - last.TablesCount
+         if newFn > 0 or tabDelta ~= 0 then
+             DeepData.TotalMemoryDeltas = (DeepData.TotalMemoryDeltas or 0) + 1
+             logTelemetry("GC_DELTA", "VM Heap Changed", string.format("Новые функции: +%d, Изменение таблиц: %d", newFn, tabDelta), "MEDIUM")
+         end
+         DeepData.MemorySnapshots.LastGCState = current
+     end)
+ end)
+end
+
+-- --- МОНИТОРИНГ ДЕЙСТВИЙ ВСЕХ ИГРОКОВ НА СЕРВЕРЕ ---
+local function trackWorldPlayerBehavior()
+    pcall(function()
+        for _, p in ipairs(plrs:GetPlayers()) do
+            if p ~= lp then
+                p.CharacterAdded:Connect(function(char)
+                    logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок возродился в мире", "LOW")
+                end)
+                p.CharacterRemoving:Connect(function(char)
+                    logTelemetry("PLAYER_BEHAVIOR", p.Name, "Персонаж удален из игрового процесса", "LOW")
+                end)
+            end
+        end
+        plrs.PlayerAdded:Connect(function(p)
+            logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок подключился к серверу", "MEDIUM")
+            p.CharacterAdded:Connect(function(char)
+                logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок возродился в мире", "LOW")
+            end)
+        end)
+        plrs.PlayerRemoving:Connect(function(p)
+            logTelemetry("PLAYER_BEHAVIOR", p.Name, "Игрок отключился от сервера", "MEDIUM")
+        end)
+    end)
+end
+
+-- --- КНОПКА MONITOR: ЗАПУСК НЕПРЕРЫВНОГО АУДИТА НА 30 МИНУТ ---
+local monitorActive = false
+liteBtn.MouseButton1Click:Connect(function()
+ if monitorActive then
+     warn("[⏳ MONITOR] Фоновая сессия уже запущена и анализирует игру!")
+     return
+ end
+ monitorActive = true
+ liteBtn.Text = "⏳ AUDITING..."
+ liteBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 180)
+ 
+ logTelemetry("SESSION", "Monitoring Started", "Запущена 30-минутная сессия непрерывного аудита сетевой активности и памяти.", "MEDIUM")
+ warn("==================================================================")
+ warn("🔬 [⏳ MONITOR] ЗАПУЩЕН НЕПРЕРЫВНЫЙ АУДИТ НА 30 МИНУТ...")
+ warn("==================================================================")
+ 
+ task.spawn(function()
+     -- На протяжении 30 минут скрипт собирает телеметрию (логируется через RemoteSpy и GC дельта-сканер)
+     task.wait(Settings.SessionDuration)
+     
+     -- Время сессии истекло!
+     liteBtn.Text = "⏳ SAVING..."
+     warn("==================================================================")
+     warn("🔬 [⏳ MONITOR] ВРЕМЯ СЕССИИ ИСТЕКЛО! АВТОМАТИЧЕСКАЯ ОТПРАВКА...")
+     warn("==================================================================")
+     
+     -- Собираем и отправляем в Supabase
+     local report = fullReportToString()
+     _G.GA_LastReport = report
+     streamChunksToCloud(report)
+     
+     monitorActive = false
+     liteBtn.Text = "⏳ MONITOR"
+     liteBtn.BackgroundColor3 = Color3.fromRGB(120, 100, 200)
+ end)
+end)
+
+-- --- ПЕРЕХВАТ СЕТЕВОЙ АКТИВНОСТИ ЧЕРЕЗ HOOKING ДЛЯ ФОНОВОЙ ТЕЛЕМЕТРИИ ---
+local function installTelemetrySniffer()
+    if not hookfunction then return end
+    pcall(function()
+        local origFire
+        origFire = hookfunction(Instance.new("RemoteEvent").FireServer, function(self, ...)
+            local args = {...}
+            task.spawn(function()
+                pcall(function()
+                    if typeof(self) == "Instance" and self:IsA("RemoteEvent") then
+                        local path = self:GetFullName()
+                        local lowPath = safeLower(path)
+                        local priority = "LOW"
+                        if matchAny(lowPath, KEYWORDS.critical_effect) or matchAny(lowPath, KEYWORDS.backdoor) then priority = "CRITICAL"
+                        elseif matchAny(lowPath, KEYWORDS.money) or matchAny(lowPath, KEYWORDS.admin) then priority = "HIGH"
+                        elseif matchAny(lowPath, KEYWORDS.combat) or matchAny(lowPath, KEYWORDS.damage) then priority = "MEDIUM" end
+                        
+                        logTelemetry("NET_SPY", "FireServer: " .. self.Name, "Аргументы: " .. argsToString(args), priority)
+                    end
+                end)
+            end)
+            return origFire(self, ...)
+        end)
+    end)
+end
 
 execAllBtn.MouseButton1Click:Connect(function()
  execAllBtn.Text = "🔥 FIRING..."
@@ -3290,6 +3306,8 @@ task.spawn(function()
  DeepData.AuditStartTime = tick()
  runFullAnalysis(true)
  refreshExploits(); refreshAnalyzer(); refreshWorkspaceTree()
+ installTelemetrySniffer()
+ trackWorldPlayerBehavior()
 end)
 task.spawn(function()
  while true do
@@ -3307,10 +3325,10 @@ task.spawn(function()
  if tabPanels.spy and tabPanels.spy.Visible then pcall(refreshSpy) end
  end
 end)
--- --- ЦИКЛ ФОНОВОГО АУДИТА ТЕЛЕМЕТРИИ v5.3 ---
+-- Фоновый дельта-сканер памяти кучи Luau
 task.spawn(function()
  while true do
-     task.wait(15) -- Снятие снимков дельты памяти каждые 15 сек в фоне
+     task.wait(15)
      pcall(performMemoryAudit)
  end
 end)
@@ -3326,5 +3344,5 @@ local function unloadAll()
 end
 _G.GameAnalyzerPro.Unload = unloadAll
 unloadBtn.MouseButton1Click:Connect(unloadAll)
-warn("[GameAnalyzer v5.3 SUPABASE] ✅ Загружен!")
-warn("[v5.3] Нажмите кнопку CLOUD для отправки ПОЛНОГО отчета прямо в свое облако Supabase!")
+warn("[GameAnalyzer v5.4 SUPABASE] ✅ Загружен!")
+warn("[v5.4] Кнопка CLOUD (ЛКМ) нарезает полный лог (4+ МБ) на части по 190 КБ и надежно отправляет в облако!")
