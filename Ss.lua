@@ -58,7 +58,7 @@ warn("==================================================================")
 -- Cleanup previous instance
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     pcall(_G.GameAnalyzerPro.Unload)
-    task.wait(0.5)
+    task.wait(0.8)
 end
 _G.GameAnalyzerPro = {}
 local connections = {}
@@ -385,16 +385,16 @@ local function _initCore()
         RemoteSpy = true,
         DeepAccess = true,
         ClipboardEnabled = CoreGlobals._setclipboard ~= nil,
-        SpyMaxCalls = 1000,
+        SpyMaxCalls = 500,
         SessionDuration = 600, -- 10 minutes background session
         BackgroundAudit = true,
         SupabaseUrl = "https://earidffeokvqgffyioxa.supabase.co/storage/v1/object/Report/",
         SupabaseKey = "sb_publishable_vAuejesqMghio6T2VFXXVQ_Bx3-6GCv",
         SupabaseProject = "earidffeokvqgffyioxa",
         SupabaseBucket = "Report",
-        MaxDecompilePerCycle = 50,
-        GCScanLimit = 50000,
-        UpvalueWalkLimit = 30000,
+        MaxDecompilePerCycle = 30,
+        GCScanLimit = 30000,
+        UpvalueWalkLimit = 15000,
         ConstantDumpLimit = 200,
         -- New v6.0 settings
         BackgroundSessionActive = false,
@@ -772,6 +772,7 @@ local function _initMemoryScanner()
                 snap.TablesCount = snap.TablesCount + 1
             end
             if i > Settings.GCScanLimit then break end
+                task.wait()
         end
         return snap
     end
@@ -1410,7 +1411,7 @@ local function scanGarbageCollector()
             DeepData.GCRemotesFound = {}
             DeepData.GCFunctionsFound = {}
             DeepData.ConstantsFound = {}
-            local BATCH = 200
+            local BATCH = 20
             local gc = getgc(true)
             for i, obj in ipairs(gc) do
                 if type(obj) == "table" then
@@ -1446,9 +1447,11 @@ local function scanGarbageCollector()
                 end
                 if i % BATCH == 0 then task.wait() end
                 if i > Settings.GCScanLimit then break end
+                task.wait()
             end
         end)
         ScanState.running = false
+        collectgarbage("collect")
     end)
 end
 
@@ -1457,7 +1460,7 @@ local function scanUpvalues()
     task.spawn(function()
         _origPcall(function()
             DeepData.UpvalueRemotes = {}
-            local BATCH = 150
+            local BATCH = 60
             for i, fn in ipairs(getgc(true)) do
                 if type(fn) == "function" then
                     _origPcall(function()
@@ -1475,6 +1478,7 @@ local function scanUpvalues()
                 if i > Settings.UpvalueWalkLimit then break end
             end
         end)
+        collectgarbage("collect")
     end)
 end
 
@@ -1505,7 +1509,7 @@ local function attemptDecompile()
             _origPcall(function()
                 local src = decompile(s)
                 if src and type(src) == "string" and #src > 20 then
-                    DeepData.DecompiledScripts[s:GetFullName()] = src
+                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 8000)
                     scanStringForSecrets(src, "decompile:" .. s:GetFullName())
                     count = count + 1
                 end
@@ -1516,7 +1520,7 @@ local function attemptDecompile()
             _origPcall(function()
                 local src = decompile(s)
                 if src and type(src) == "string" and #src > 20 then
-                    DeepData.DecompiledScripts[s:GetFullName()] = src
+                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 8000)
                     scanStringForSecrets(src, "decompile:" .. s:GetFullName())
                     count = count + 1
                 end
@@ -1584,7 +1588,7 @@ local function scanLoadedModules()
     DeepData.LoadedModules = {}; DeepData.ModuleReturns = {}
     _origPcall(function()
         local ms = getloadedmodules()
-        local BATCH = 40
+        local BATCH = 20
         for i, m in ipairs(ms) do
             _origPcall(function()
                 if typeof(m) == "Instance" and m:IsA("ModuleScript") then
@@ -1620,7 +1624,7 @@ local function megaDumpClosures()
     DeepData.ProtoScan = {}; DeepData.RemoteInvokers = {}
     _origPcall(function()
         local gc = getgc(true)
-        local BATCH = 100
+        local BATCH = 50
         local processed = 0
         local dumpedRemotes = {}
         for i, fn in ipairs(gc) do
@@ -1647,8 +1651,10 @@ local function megaDumpClosures()
             end
             if i % BATCH == 0 then task.wait() end
             if i > Settings.GCScanLimit then break end
+                task.wait()
         end
         DeepData.MegaScanStats.ClosuresProcessed = processed
+        collectgarbage("collect")
     end)
 end
 
@@ -1729,7 +1735,8 @@ local function scanAllScripts()
             end)
             local ok, src = _origPcall(decompile, s)
             if ok and type(src) == "string" and #src > 20 then
-                DeepData.AllScriptSources[s:GetFullName()] = src
+                if #src > 50000 then DeepData.AllScriptSources[s:GetFullName()] = src:sub(1, 10000) .. "\n-- [TRUNCATED: " .. #src .. " bytes total]"
+                else DeepData.AllScriptSources[s:GetFullName()] = src end
                 decompiled = decompiled + 1
                 scanStringForSecrets(src, s:GetFullName())
                 local density = 0
@@ -1766,7 +1773,7 @@ local function scanAllUpvaluesDeep()
     DeepData.DeepWalkResults = { remotes = {}, bindables = {}, userIds = {}, adminHints = {} }
     local seen = {}
     _origPcall(function()
-        local BATCH = 80
+        local BATCH = 20
         for i, fn in ipairs(getgc(true)) do
             if type(fn) == "function" then
                 _origPcall(function()
@@ -1787,6 +1794,7 @@ local function scanAllUpvaluesDeep()
     for _, e in ipairs(DeepData.DeepWalkResults.remotes) do safeInsert(DeepData.UpvalueRemotes, e.obj) end
     for _, e in ipairs(DeepData.DeepWalkResults.adminHints) do safeInsert(DeepData.AdminList, { name = e.value, source = "deep-walk:" .. e.path }) end
     for _, e in ipairs(DeepData.DeepWalkResults.userIds) do safeInsert(DeepData.AdminList, { userId = e.id, source = "deep-walk:" .. e.path }) end
+    collectgarbage("collect")
 end
 
 local function scanCollectionTags()
@@ -1940,6 +1948,7 @@ end
 -- СЕКЦИЯ 12: ПОЛНЫЙ АНАЛИЗ
 -- ═══════════════════════════════════════════════════════════════
 function runFullAnalysis(force)
+    local ok, err = _origPcall(function()
     local now = tick()
     if not force and (now - LastScanTime) < 15 then _origWarn("[ANALYZER] Skip (cooldown)"); return end
     LastScanTime = now
@@ -1971,19 +1980,19 @@ function runFullAnalysis(force)
     scanGarbageCollector(); scanUpvalues()
     if Settings.DeepAccess then scanNilParents() end
     scanAllInstances(); scanBindables(); scanLoadedModules()
-    task.wait(0.3)
+    task.wait(0.8)
 
     -- Phase 4: Deep closure analysis
     megaDumpClosures(); scanAllScripts()
     dumpGlobals(); dumpPlayerContext(); scanNetworkOwners()
     scanAllUpvaluesDeep(); scanCollectionTags(); scanAllAttributes()
     scanRunContextAnomalies(); scanPlayerGuis()
-    task.wait(0.3)
+    task.wait(0.8)
 
     -- Phase 5: Services & structure
     scanAllServices()
     if decompile then scanAllScripts() end
-    task.wait(0.3)
+    task.wait(0.8)
 
     -- Phase 6: Backdoors & obfuscation
     attemptDecompile(); scanNamingObfuscation()
@@ -2008,6 +2017,8 @@ function runFullAnalysis(force)
     _origWarn(_origStringFormat("║ 📡 Server findings: %d", #DeepData.ServerSideFindings))
     _origWarn(_origStringFormat("║ 🔤 Constants dumped: %d", #DeepData.DeepConstantDump))
     _origWarn("╚═══════════════════════════════════════════════════╝")
+    end) -- pcall wrap
+    if not ok then _origWarn("[v7.0] ❌ Scan error: " .. tostring(err)) end
 end
 
 -- Auto-index new instances
@@ -2361,7 +2372,7 @@ function AK:Install()
                         end
                     end)
                 end
-                task.wait(0.3)
+                task.wait(0.8)
             end
         end)
         AK.layers = AK.layers + 1
@@ -3240,7 +3251,99 @@ ServerSideProbe.hookLogService()
 task.spawn(function()
     DeepData.AuditStartTime = tick()
     DeepData.SessionStartTime = tick()
-    runFullAnalysis(true)
+    -- ═══ ПОЛНЫЙ СТАРТ: Anti-Kick → Instance → GC → Decompile → с GC между фазами ═══
+    _origWarn("[v7.0] 🛡️ Phase 0: Anti-Kick...")
+    _origPcall(function() AK:Install() end)
+    _origPcall(function() AK:Toggle(true) end)
+    task.wait(1)
+    collectgarbage("collect")
+    _origWarn("[v7.0] ✅ AK: " .. tostring(AK.layers) .. " layers")
+
+    -- Phase 1: Instance scan (лёгко)
+    _origWarn("[v7.0] 🔄 Phase 1/5: Instances...")
+    _origPcall(function()
+        DeepData.GameId = game.GameId; DeepData.PlaceId = game.PlaceId; DeepData.GameName = game.Name
+        for _, s in ipairs({rep, ws, game:GetService("StarterPack"), game:GetService("StarterGui"), game:GetService("StarterPlayer")}) do
+            pcall(function() for _, o in ipairs(s:GetDescendants()) do pcall(indexObject, o) end end)
+            task.wait(0.1)
+        end
+        for _, p in ipairs(plrs:GetPlayers()) do
+            local bp = p:FindFirstChild("Backpack")
+            if bp then for _, o in ipairs(bp:GetDescendants()) do pcall(indexObject, o) end end
+        end
+        scanForBosses(); detectAnticheatType()
+        dumpPlayerContext(); scanPlayerGuis()
+        scanBindables(); scanCollectionTags()
+        scanAllAttributes(); scanRunContextAnomalies()
+    end)
+    collectgarbage("collect")
+    task.wait(0.3)
+    _origWarn("[v7.0] ✅ Phase 1 done | Exploits so far: " .. #DeepData.ExploitList)
+
+    -- Phase 2: GC scan (средне)
+    _origWarn("[v7.0] 🔄 Phase 2/5: GC + Upvalues...")
+    _origPcall(scanGarbageCollector); task.wait(1)
+    collectgarbage("collect")
+    _origPcall(scanUpvalues); task.wait(0.5)
+    collectgarbage("collect")
+    _origPcall(scanAllInstances); task.wait(0.3)
+    _origPcall(scanLoadedModules)
+    collectgarbage("collect")
+    _origWarn("[v7.0] ✅ Phase 2 done")
+
+    -- Phase 3: Closure analysis (тяжело)
+    _origWarn("[v7.0] 🔄 Phase 3/5: Closures + Upvalue deep walk...")
+    _origPcall(megaDumpClosures); task.wait(1)
+    collectgarbage("collect")
+    _origPcall(scanAllUpvaluesDeep); task.wait(0.5)
+    collectgarbage("collect")
+    _origPcall(dumpGlobals); _origPcall(scanNetworkOwners)
+    _origWarn("[v7.0] ✅ Phase 3 done")
+
+    -- Phase 4: Decompile (тяжело)
+    _origWarn("[v7.0] 🔄 Phase 4/5: Decompilation...")
+    _origPcall(scanAllScripts); task.wait(1)
+    collectgarbage("collect")
+    _origPcall(attemptDecompile); task.wait(0.5)
+    collectgarbage("collect")
+    _origPcall(scanProtectedInstances)
+    _origPcall(scanNamingObfuscation)
+    _origWarn("[v7.0] ✅ Phase 4 done")
+
+    -- Phase 5: Analysis + Ultra modules
+    _origWarn("[v7.0] 🔄 Phase 5/5: Analysis + Exploit list...")
+    _origPcall(buildExploitList)
+    _origPcall(function() PlayerAnalyzer.analyzeAllPlayers() end)
+    _origPcall(function() ServerSideProbe.detectServerScripts() end)
+    _origPcall(function() ServerSideProbe.detectReplicatedRemotes() end)
+    _origPcall(function() ConnectionFingerprinter.analyzeAllConnections() end)
+    _origPcall(function() RiskScorer.scoreAll() end)
+    _origPcall(function() ACDatabase.detect() end)
+    _origPcall(function() BackdoorDetectorV2.scan() end)
+    _origPcall(function() AnomalyDetector.analyzeRemoteFrequency() end)
+    _origPcall(function() PrivEscFinder.findChains() end)
+    _origPcall(function() ExploitChainDetector.buildDependencyGraph() end)
+    _origPcall(function() EnvFingerprint.collect() end)
+    _origPcall(function() DebugDumper.dump() end)
+    collectgarbage("collect")
+
+    DeepData.ScanTime = tick() - DeepData.AuditStartTime
+    _origWarn("[v7.0] ═══════════════════════════════════")
+    _origWarn("[v7.0] ✅ FULL SCAN DONE in " .. _origMathFloor(DeepData.ScanTime) .. "s")
+    _origWarn("[v7.0] 🚪 Exploits: " .. #DeepData.ExploitList)
+    _origWarn("[v7.0] 💰 Money:" .. #DeepData.MoneyRemotes .. " 👑 Admin:" .. #DeepData.AdminRemotes .. " 🛡️ God:" .. #DeepData.GodRemotes)
+    _origWarn("[v7.0] 🚨 Exec:" .. #DeepData.ExecuteRemotes .. " 🔤 Constants:" .. #DeepData.DeepConstantDump)
+    _origWarn("[v7.0] 👥 Players: " .. #DeepData.PlayerBehaviors .. " 🖥️ Server: " .. #DeepData.ServerSideFindings)
+    _origWarn("[v7.0] ═══════════════════════════════════")
+    -- Обновляем GUI
+    _origPcall(refreshExploits); _origPcall(refreshAnalyzer)
+    _origPcall(refreshWorkspaceTree); _origPcall(refreshPlayers)
+    _origPcall(refreshServer); _origPcall(refreshWorld)
+    -- Фоновые процессы
+    _origPcall(function() TelemetryEngine.trackWorldPlayerBehavior() end)
+    _origPcall(function() PerfMonitor.start() end)
+    _origPcall(function() HumanoidMonitor.startMonitoring() end)
+    _origPcall(function() PlayerGuardian.startMonitoring() end)
     refreshExploits(searchBox.Text); refreshAnalyzer(); refreshWorkspaceTree()
     refreshPlayers(); refreshServer()
     installTelemetrySniffer()
@@ -4125,7 +4228,7 @@ function PlayerGuardian.startMonitoring()
                             TelemetryEngine.logTelemetry("GUI_DETECTION", d.Name,
                                 "Anti-cheat GUI detected: " .. d:GetFullName(), "HIGH")
                             if AK.active then
-                                task.wait(0.5)
+                                task.wait(0.8)
                                 _origPcall(function() d:Destroy() end)
                                 AK.blocked = AK.blocked + 1
                             end
@@ -5623,9 +5726,45 @@ end)
 -- ═══════════════════════════════════════════════════════════════
 -- Patch the scan button to refresh all panels
 scanBtn.MouseButton1Click:Connect(function()
-    scanBtn.Text = "🔄 SCANNING..."
+    scanBtn.Text = "🔄 DEEP SCAN..."
     task.spawn(function()
-        runFullAnalysis(true)
+        -- Phase 1: Instance scan (быстро)
+        _origPcall(function()
+            for _, s in ipairs({rep, ws}) do
+                pcall(function() for _, o in ipairs(s:GetDescendants()) do pcall(indexObject, o) end end)
+                task.wait(0.2)
+            end
+            scanForBosses(); detectAnticheatType()
+            dumpPlayerContext(); scanPlayerGuis()
+            scanBindables(); scanCollectionTags()
+        end)
+        task.wait(0.3)
+        -- Phase 2: GC scan (тяжело, но по кнопке ОК)
+        _origWarn("[v7.0] 🔄 Deep scan: GC + Upvalues...")
+        _origPcall(function() scanGarbageCollector() end)
+        task.wait(2)
+        _origPcall(function() scanUpvalues() end)
+        task.wait(1)
+        _origPcall(function() scanAllInstances() end)
+        task.wait(0.8)
+        _origPcall(function() scanLoadedModules() end)
+        task.wait(0.8)
+        -- Phase 3: Closure dump (тяжело)
+        _origWarn("[v7.0] 🔄 Deep scan: Closures + Decompilation...")
+        _origPcall(function() megaDumpClosures() end)
+        task.wait(2)
+        _origPcall(function() scanAllScripts() end)
+        task.wait(1)
+        _origPcall(function() attemptDecompile() end)
+        task.wait(0.8)
+        -- Phase 4: Finalize
+        _origPcall(function() scanNamingObfuscation() end)
+        _origPcall(buildExploitList)
+        _origPcall(function() PlayerAnalyzer.analyzeAllPlayers() end)
+        _origPcall(function() ServerSideProbe.detectServerScripts() end)
+        _origPcall(function() RiskScorer.scoreAll() end)
+        _origPcall(function() BackdoorDetectorV2.scan() end)
+        -- Обновляем GUI
         _origPcall(function() refreshExploits(searchBox.Text) end)
         _origPcall(refreshAnalyzer)
         _origPcall(refreshWorkspaceTree)
@@ -5635,7 +5774,7 @@ scanBtn.MouseButton1Click:Connect(function()
         _origPcall(refreshSpy)
         scanBtn.Text = "🔄 OK: " .. #DeepData.ExploitList
         task.wait(3); scanBtn.Text = "🔄 SCAN"
-        showToast(mf, "Scan complete! " .. #DeepData.ExploitList .. " exploits found.", Color3.fromRGB(0, 150, 100))
+        showToast(mf, "Deep scan done! " .. #DeepData.ExploitList .. " exploits", Color3.fromRGB(0, 150, 100))
     end)
 end)
 
