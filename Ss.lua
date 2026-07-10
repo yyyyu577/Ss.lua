@@ -37,33 +37,18 @@
 -- ═══════════════════════════════════════════════════════════════
 local _origWarn = warn
 local _origPrint = print
-local _origError = error
 local _origPcall = pcall
-local _origXpcall = xpcall
-local _origTostring = tostring
-local _origType = type
-local _origSelect = select
 local _origUnpack = unpack or table.unpack
 local _origTableInsert = table.insert
 local _origTableRemove = table.remove
 local _origTableConcat = table.concat
-local _origStringFind = string.find
 local _origStringSub = string.sub
-local _origStringLower = string.lower
 local _origStringFormat = string.format
-local _origStringGmatch = string.gmatch
-local _origStringMatch = string.match
-local _origStringByte = string.byte
-local _origStringRep = string.rep
 local _origMathRandom = math.random
 local _origMathFloor = math.floor
 local _origMathMin = math.min
 local _origMathMax = math.max
 local _origMathCeil = math.ceil
-local _origTick = tick
-local _origTaskWait = task.wait
-local _origTaskSpawn = task.spawn
-local _origTaskDelay = task.delay
 local _origInstanceNew = Instance.new
 
 warn("==================================================================")
@@ -76,15 +61,15 @@ if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     task.wait(0.5)
 end
 _G.GameAnalyzerPro = {}
+local connections = {}
+local KEYWORDS
+local LastScanTime = 0
+local ScanState = { running = false }
+local monitorActive = false
 
 -- Forward-declare all modules
-local CoreGlobals, Settings, DeepData, KeywordRegistry, Heuristics
-local NetworkScanner, MemoryScanner, TelemetryEngine, GUI_Builder
-local SupabaseUploader, PlayerAnalyzer, ServerSideProbe, BytecodeAnalyzer
 
 -- Global tables
-local connections = {}
-local KEYWORDS -- alias for KeywordRegistry
 
 -- ═══════════════════════════════════════════════════════════════
 -- СЕКЦИЯ 1: УТИЛИТАРНЫЕ ФУНКЦИИ (БАЗОВЫЕ)
@@ -239,7 +224,7 @@ local function deepWalkTable(tbl, maxDepth, path, results, seen)
             end
         elseif type(v) == "string" then
             local lv = v:lower()
-            if lv:find("admin") or lv:find("owner") or lv:find("dev") or lv:find("gm") or lv:found("superadmin") then
+            if lv:find("admin") or lv:find("owner") or lv:find("dev") or lv:find("gm") or lv:find("superadmin") then
                 safeInsert(results.adminHints, { value = v, path = vpath })
             end
             if v:match("^%d%d%d%d%d%d%d+$") then
@@ -1417,7 +1402,6 @@ local function detectAnticheatType()
     end
 end
 
-local ScanState = { running = false }
 local function scanGarbageCollector()
     if not getgc or ScanState.running then return end
     ScanState.running = true
@@ -1955,7 +1939,6 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- СЕКЦИЯ 12: ПОЛНЫЙ АНАЛИЗ
 -- ═══════════════════════════════════════════════════════════════
-local LastScanTime = 0
 function runFullAnalysis(force)
     local now = tick()
     if not force and (now - LastScanTime) < 15 then _origWarn("[ANALYZER] Skip (cooldown)"); return end
@@ -3104,7 +3087,6 @@ end)
 -- СЕКЦИЯ 21: 10-MINUTE BACKGROUND SESSION
 -- Непрерывный глубокий анализ с периодической облачной отправкой
 -- ═══════════════════════════════════════════════════════════════
-local monitorActive = false
 liteBtn.MouseButton1Click:Connect(function()
     if monitorActive then _origWarn("[⏳ MONITOR] Session already running!"); return end
     monitorActive = true
@@ -3336,7 +3318,6 @@ _origWarn("╚══════════════════════
 -- ADVANCED MODULE 1: CONNECTION FINGERPRINTING
 -- Анализирует все подключения к RemoteEvent/Function
 -- ═══════════════════════════════════════════════════════════════
-local ConnectionFingerprinter = {}
 
 function ConnectionFingerprinter.analyzeAllConnections()
     if not getconnections then return end
@@ -3429,7 +3410,6 @@ end
 -- ADVANCED MODULE 2: HUMANOID PROPERTY MONITOR
 -- Отслеживает подозрительные изменения свойств Humanoid
 -- ═══════════════════════════════════════════════════════════════
-local HumanoidMonitor = {}
 
 function HumanoidMonitor.startMonitoring()
     task.spawn(function()
@@ -3502,7 +3482,6 @@ end
 -- ADVANCED MODULE 3: MARKETPLACE SCANNER
 -- Сканирует MarketplaceService на продукты и gamepass'ы
 -- ═══════════════════════════════════════════════════════════════
-local MarketplaceScanner = {}
 
 function MarketplaceScanner.scan()
     DeepData.MarketplaceProducts = {}
@@ -3551,7 +3530,6 @@ end
 -- ADVANCED MODULE 4: FULL GAME TREE EXTRACTOR
 -- Полное дерево всех инстансов в игре
 -- ═══════════════════════════════════════════════════════════════
-local GameTreeExtractor = {}
 
 function GameTreeExtractor.extract()
     DeepData.FullGameTree = {}
@@ -3631,7 +3609,6 @@ end
 -- ADVANCED MODULE 5: EVERY SCRIPT SCANNER
 -- Декомпилирует ВСЕ скрипты в игре
 -- ═══════════════════════════════════════════════════════════════
-local EveryScriptScanner = {}
 
 function EveryScriptScanner.scanAll()
     if not decompile then return end
@@ -3702,7 +3679,6 @@ end
 -- ADVANCED MODULE 6: FALLBACK GC VIA REGISTRY
 -- Если getgc недоступен, используем getreg
 -- ═══════════════════════════════════════════════════════════════
-local FallbackScanner = {}
 
 function FallbackScanner.scanViaRegistry()
     if not getreg then return end
@@ -3750,7 +3726,6 @@ end
 -- ADVANCED MODULE 7: BACKDOOR DETECTOR
 -- Ищет подозрительные паттерны в декомпилированном коде
 -- ═══════════════════════════════════════════════════════════════
-local BackdoorDetector = {}
 
 function BackdoorDetector.scan()
     DeepData.BackdoorScripts = {}
@@ -3794,7 +3769,6 @@ end
 -- ADVANCED MODULE 8: NETWORK TRAFFIC ANALYZER
 -- Анализирует паттерны сетевой активности
 -- ═══════════════════════════════════════════════════════════════
-local NetworkAnalyzer = {}
 
 function NetworkAnalyzer.analyzeCallPatterns()
     DeepData.MostCalledRemotes = {}
@@ -3853,7 +3827,6 @@ end
 -- ADVANCED MODULE 9: ENHANCED REPORT BUILDER
 -- Расширенный отчёт с JSON экспортом
 -- ═══════════════════════════════════════════════════════════════
-local ReportBuilder = {}
 
 function ReportBuilder.toJSON()
     local data = {
@@ -3988,7 +3961,6 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- ADVANCED MODULE 11: KEYBOARD SHORTCUTS
 -- ═══════════════════════════════════════════════════════════════
-local KeyboardShortcuts = {}
 
 function KeyboardShortcuts.install()
     if not UIS then return end
@@ -4013,7 +3985,6 @@ end
 -- ADVANCED MODULE 12: STRING PATTERN MATCHER v2
 -- Расширенный поиск секретов с новыми паттернами
 -- ═══════════════════════════════════════════════════════════════
-local SecretMatcher = {}
 
 SecretMatcher.patterns = {
     -- Discord
@@ -4083,7 +4054,6 @@ end
 -- ADVANCED MODULE 13: OBFUSCATION DETECTOR v2
 -- Расширенное обнафuscation обнаружение
 -- ═══════════════════════════════════════════════════════════════
-local ObfuscationDetector = {}
 
 function ObfuscationDetector.analyzeScript(path, source)
     if type(source) ~= "string" or #source < 50 then return end
@@ -4140,7 +4110,6 @@ end
 -- ADVANCED MODULE 14: PLAYER GUARDIAN
 -- Мониторит все изменения в PlayerGui
 -- ═══════════════════════════════════════════════════════════════
-local PlayerGuardian = {}
 
 function PlayerGuardian.startMonitoring()
     task.spawn(function()
@@ -4181,7 +4150,6 @@ end
 -- ADVANCED MODULE 15: SAVE/LOAD SCAN CACHE
 -- Сохраняет результаты сканирования между сессиями
 -- ═══════════════════════════════════════════════════════════════
-local ScanCache = {}
 
 function ScanCache.save()
     if not CoreGlobals._writefile then return end
@@ -4903,7 +4871,6 @@ _origPrint("[v6.0] ✅ Mega report builder loaded (35 sections)")
 -- ULTRA MODULE 1: EXPLOIT SCRIPT GENERATOR
 -- Автоматически генерирует готовый Lua код для каждого эксплойта
 -- ═══════════════════════════════════════════════════════════════
-local ExploitScriptGen = {}
 
 function ExploitScriptGen.generate(exp)
     if not exp or not exp.remote then return "-- Invalid exploit" end
@@ -4963,7 +4930,6 @@ end
 -- ULTRA MODULE 2: INSTANCE PROPERTY SCANNER
 -- Сканирует все ValueBase объекты в игре
 -- ═══════════════════════════════════════════════════════════════
-local InstancePropScanner = {}
 
 function InstancePropScanner.scanAllValueBases()
     DeepData.ValueBases = {}
@@ -5011,7 +4977,6 @@ end
 -- ULTRA MODULE 3: WORKSPACE PHYSICS ANALYZER
 -- Анализирует физику мира (гравитация, части, свойства)
 -- ═══════════════════════════════════════════════════════════════
-local PhysicsAnalyzer = {}
 
 function PhysicsAnalyzer.analyze()
     DeepData.PhysicsData = {
@@ -5050,7 +5015,6 @@ end
 -- ULTRA MODULE 4: SOUND/ANIMATION/MESH SCANNER
 -- Извлекает все asset ID'ы из игры
 -- ═══════════════════════════════════════════════════════════════
-local AssetScanner = {}
 
 function AssetScanner.scan()
     DeepData.SoundAssets = {}
@@ -5105,7 +5069,6 @@ end
 -- ULTRA MODULE 5: SPAWN/BOSS/SHOP/QUEST SCANNER
 -- Находит все важные точки на карте
 -- ═══════════════════════════════════════════════════════════════
-local WorldPointScanner = {}
 
 function WorldPointScanner.scan()
     DeepData.SpawnPoints = {}
@@ -5178,7 +5141,6 @@ end
 -- ULTRA MODULE 6: ECONOMY ANALYZER
 -- Анализирует игровую экономику
 -- ═══════════════════════════════════════════════════════════════
-local EconomyAnalyzer = {}
 
 function EconomyAnalyzer.analyze()
     DeepData.EconomyData = {
@@ -5226,7 +5188,6 @@ end
 -- ULTRA MODULE 7: ENVIRONMENT FINGERPRINTER
 -- Полная информация об окружении executor'а
 -- ═══════════════════════════════════════════════════════════════
-local EnvFingerprint = {}
 
 function EnvFingerprint.collect()
     DeepData.EnvData = {
@@ -5325,7 +5286,6 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- ULTRA MODULE 9: NEAREST PLAYER FINDER
 -- ═══════════════════════════════════════════════════════════════
-local NearestPlayer = {}
 
 function NearestPlayer.find()
     if not lp.Character then return nil end
@@ -5352,7 +5312,6 @@ end
 -- ULTRA MODULE 10: COMPREHENSIVE DEBUG DUMP
 -- Собирает ВСЕ возможные данные для отладки
 -- ═══════════════════════════════════════════════════════════════
-local DebugDumper = {}
 
 function DebugDumper.dump()
     DeepData.DebugDump = {
@@ -6262,7 +6221,6 @@ _origWarn("╚══════════════════════
 -- ULTIMATE MODULE 1: EXPLOIT CHAIN DETECTOR
 -- Автоматически находит цепочки: simple exploit → RCE
 -- ═══════════════════════════════════════════════════════════════
-local ExploitChainDetector = {}
 
 function ExploitChainDetector.buildDependencyGraph()
     DeepData.DependencyGraph = { nodes = {}, edges = {}, cycles = {} }
@@ -6378,7 +6336,6 @@ end
 -- ULTIMATE MODULE 2: CVSS-LIKE RISK SCORING
 -- Профессиональная система оценки уязвимостей (0-100)
 -- ═══════════════════════════════════════════════════════════════
-local RiskScorer = {}
 
 -- Весовые коэффициенты для каждого фактора
 RiskScorer.weights = {
@@ -6472,7 +6429,6 @@ end
 -- ULTIMATE MODULE 3: ANOMALY DETECTOR
 -- Statistical outlier detection для необычного поведения
 -- ═══════════════════════════════════════════════════════════════
-local AnomalyDetector = {}
 
 function AnomalyDetector.analyzeRemoteFrequency()
     -- Собираем статистику вызовов
@@ -6597,7 +6553,6 @@ end
 -- ULTIMATE MODULE 4: SMART FUZZER
 -- Mutation-based argument fuzzing для RemoteEvent'ов
 -- ═══════════════════════════════════════════════════════════════
-local SmartFuzzer = {}
 
 -- Базовые мутации для разных типов данных
 SmartFuzzer.mutations = {
@@ -6694,7 +6649,6 @@ end
 -- ULTIMATE MODULE 5: TIMING ANALYZER
 -- Анализ задержек между RemoteEvent вызовами
 -- ═══════════════════════════════════════════════════════════════
-local TimingAnalyzer = {}
 
 function TimingAnalyzer.analyze()
     DeepData.TimingAnalysis = {}
@@ -6745,7 +6699,6 @@ end
 -- ULTIMATE MODULE 6: ENHANCED ANTI-CHEAT DATABASE
 -- 50+ AC сигнатур с описанием слабых мест
 -- ═══════════════════════════════════════════════════════════════
-local ACDatabase = {}
 
 ACDatabase.signatures = {
     {name = "Hyperion/Byfron", patterns = {"hyperion", "byfron", "fron"}, weakness = "Kernel-level, but client-side hooks still work via executors", bypass = "Use supported executor with Hyperion bypass"},
@@ -6831,7 +6784,6 @@ end
 -- ULTIMATE MODULE 7: PRIVILEGE ESCALATION CHAIN FINDER
 -- Автоматически ищет цепочки low → high privilege
 -- ═══════════════════════════════════════════════════════════════
-local PrivEscFinder = {}
 
 PrivEscFinder.levels = {
     chat = 1, speed = 1, noclip = 1, heal = 1,
@@ -6886,7 +6838,6 @@ end
 -- ULTIMATE MODULE 8: ENHANCED BACKDOOR DETECTOR v2
 -- 50+ backdoor сигнатур с анализом web-запросов
 -- ═══════════════════════════════════════════════════════════════
-local BackdoorDetectorV2 = {}
 
 BackdoorDetectorV2.signatures = {
     -- Loadstring-based backdoors
@@ -6982,7 +6933,6 @@ end
 -- ULTIMATE MODULE 9: DIFF-BASED CHANGE DETECTOR
 -- Сравнивает результаты между сканами
 -- ═══════════════════════════════════════════════════════════════
-local DiffEngine = {}
 
 function DiffEngine.takeSnapshot()
     local snapshot = {
