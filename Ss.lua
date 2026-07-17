@@ -32,211 +32,38 @@
 ]]
 
 -- ═══════════════════════════════════════════════════════════════
--- ═══════════════════════════════════════════════════════════════
--- DEVICE DETECTION & ADAPTIVE PROFILES
--- ═══════════════════════════════════════════════════════════════
-local DeviceProfile = {}
-do
-    local UIS_detect = game:GetService("UserInputService")
-    local isTouch = UIS_detect.TouchEnabled
-    local isMouse = UIS_detect.MouseEnabled
-    local cam = workspace.CurrentCamera
-    local screenSize = cam.ViewportSize
-
-    if isTouch and not isMouse then
-        DeviceProfile.platform = "MOBILE"
-        DeviceProfile.batchSize = 30
-        DeviceProfile.maxGC = 8000
-        DeviceProfile.maxUpvalue = 3000
-        DeviceProfile.maxDecompile = 8
-        DeviceProfile.maxSpyCalls = 100
-        DeviceProfile.yieldMs = 100
-        DeviceProfile.guiScale = 0.85
-        DeviceProfile.compactGUI = true
-    elseif isTouch and screenSize.X > 1000 then
-        DeviceProfile.platform = "TABLET"
-        DeviceProfile.batchSize = 75
-        DeviceProfile.maxGC = 20000
-        DeviceProfile.maxUpvalue = 10000
-        DeviceProfile.maxDecompile = 20
-        DeviceProfile.maxSpyCalls = 300
-        DeviceProfile.yieldMs = 60
-        DeviceProfile.guiScale = 1.0
-        DeviceProfile.compactGUI = false
-    else
-        DeviceProfile.platform = "DESKTOP"
-        DeviceProfile.batchSize = 200
-        DeviceProfile.maxGC = 50000
-        DeviceProfile.maxUpvalue = 30000
-        DeviceProfile.maxDecompile = 50
-        DeviceProfile.maxSpyCalls = 1000
-        DeviceProfile.yieldMs = 30
-        DeviceProfile.guiScale = 1.0
-        DeviceProfile.compactGUI = false
-    end
-    DeviceProfile.screenSize = screenSize
-    DeviceProfile.fps = 60
-    DeviceProfile.memoryUsed = 0
-    DeviceProfile.memoryLimit = DeviceProfile.platform == "MOBILE" and 80000 or (DeviceProfile.platform == "TABLET" and 150000 or 500000)
-end
-
--- FPS Tracker (для адаптивного batch sizing)
-local FPSTracker = { samples = {}, idx = 0, count = 30 }
-function FPSTracker:record(fps)
-    self.idx = (self.idx % self.count) + 1
-    self.samples[self.idx] = fps
-end
-function FPSTracker:avg()
-    local sum, cnt = 0, 0
-    for _, v in ipairs(self.samples) do if v then sum = sum + v; cnt = cnt + 1 end end
-    return cnt > 0 and sum / cnt or 60
-end
-function FPSTracker:adaptiveBatch(base)
-    local avg = self:avg()
-    if avg < 20 then return math.max(5, math.floor(base * 0.3))
-    elseif avg < 30 then return math.max(10, math.floor(base * 0.5))
-    elseif avg > 55 then return math.floor(base * 1.25)
-    end
-    return base
-end
-
--- Memory Profiler
-local MemProfiler = { snapshots = {}, alertThreshold = 0.85 }
-function MemProfiler:snapshot(label)
-    local kb = gcinfo()
-    self.snapshots[label or "unknown"] = kb
-    DeviceProfile.memoryUsed = kb
-    if kb > DeviceProfile.memoryLimit * self.alertThreshold then
-        collectgarbage("collect")
-        local after = gcinfo()
-        warn("[MEM] Alert! " .. label .. ": " .. kb .. "KB -> GC -> " .. after .. "KB")
-        return true -- signal to reduce load
-    end
-    return false
-end
-function MemProfiler:report()
-    local lines = {}
-    for label, kb in pairs(self.snapshots) do
-        table.insert(lines, label .. ": " .. kb .. "KB")
-    end
-    return table.concat(lines, " | ")
-end
-
--- Deduplication Helper
-local Dedup = {}
-function Dedup.table(tbl)
-    local seen = {}
-    local result = {}
-    for _, v in ipairs(tbl) do
-        local key = tostring(v)
-        if not seen[key] then seen[key] = true; table.insert(result, v) end
-    end
-    return result
-end
-function Dedup.exploits(list)
-    local seen = {}
-    local result = {}
-    for _, exp in ipairs(list) do
-        local key = exp.path or tostring(exp)
-        if not seen[key] then seen[key] = true; table.insert(result, exp) end
-    end
-    return result
-end
-
--- LRU Cache
-local LRUCache = { maxEntries = 5000, data = {}, order = {} }
-function LRUCache:get(key)
-    local entry = self.data[key]
-    if entry then
-        entry.lastAccess = tick()
-        return entry.value
-    end
-    return nil
-end
-function LRUCache:set(key, value)
-    if #self.order >= self.maxEntries then
-        -- Evict oldest
-        local oldest, oldestTime = nil, math.huge
-        for k, e in pairs(self.data) do
-            if e.lastAccess < oldestTime then oldest = k; oldestTime = e.lastAccess end
-        end
-        if oldest then self.data[oldest] = nil end
-    end
-    self.data[key] = { value = value, lastAccess = tick() }
-end
-
--- Graceful Degradation Wrapper
-local function safeCall(label, fn, fallback)
-    local ok, result = pcall(fn)
-    if ok then return result end
-    warn("[SAFE] " .. label .. " failed: " .. tostring(result))
-    return fallback
-end
-
--- State Persistence
-local StateManager = { file = "GA_v7_state.json" }
-function StateManager:save(data)
-    if not writefile then return end
-    pcall(function()
-        local json = game:GetService("HttpService"):JSONEncode(data)
-        writefile(self.file, json)
-    end)
-end
-function StateManager:load()
-    if not readfile or not isfile then return nil end
-    local ok, result = pcall(function()
-        if not isfile(self.file) then return nil end
-        local raw = readfile(self.file)
-        return game:GetService("HttpService"):JSONDecode(raw)
-    end)
-    if ok then return result end
-    return nil
-end
-
--- Circular Buffer
-local function newCircularBuffer(maxSize)
-    return { buf = {}, head = 0, size = 0, max = maxSize }
-end
-local function cbPush(cb, item)
-    cb.head = (cb.head % cb.max) + 1
-    cb.buf[cb.head] = item
-    if cb.size < cb.max then cb.size = cb.size + 1 end
-end
-local function cbIterate(cb)
-    local i = 0
-    return function()
-        i = i + 1
-        if i > cb.size then return nil end
-        local idx = ((cb.head - cb.size + i - 1) % cb.max) + 1
-        return cb.buf[idx]
-    end
-end
-
--- Adaptive Yield (умный task.wait)
-local function adaptiveWait(baseMs)
-    local avg = FPSTracker:avg()
-    if avg < 20 then task.wait(baseMs / 1000 * 3) -- сильно тормозим
-    elseif avg < 30 then task.wait(baseMs / 1000 * 2)
-    else task.wait(baseMs / 1000) end
-end
-
 -- СЕКЦИЯ 0: СОХРАНЕНИЕ ОРИГИНАЛЬНЫХ ФУНКЦИЙ
 -- (ВАЖНО: должно быть ДО любых переопределений)
 -- ═══════════════════════════════════════════════════════════════
 local _origWarn = warn
 local _origPrint = print
+local _origError = error
 local _origPcall = pcall
+local _origXpcall = xpcall
+local _origTostring = tostring
+local _origType = type
+local _origSelect = select
 local _origUnpack = unpack or table.unpack
 local _origTableInsert = table.insert
 local _origTableRemove = table.remove
 local _origTableConcat = table.concat
+local _origStringFind = string.find
 local _origStringSub = string.sub
+local _origStringLower = string.lower
 local _origStringFormat = string.format
+local _origStringGmatch = string.gmatch
+local _origStringMatch = string.match
+local _origStringByte = string.byte
+local _origStringRep = string.rep
 local _origMathRandom = math.random
 local _origMathFloor = math.floor
 local _origMathMin = math.min
 local _origMathMax = math.max
 local _origMathCeil = math.ceil
+local _origTick = tick
+local _origTaskWait = task.wait
+local _origTaskSpawn = task.spawn
+local _origTaskDelay = task.delay
 local _origInstanceNew = Instance.new
 
 warn("==================================================================")
@@ -246,18 +73,18 @@ warn("==================================================================")
 -- Cleanup previous instance
 if _G.GameAnalyzerPro and _G.GameAnalyzerPro.Unload then
     pcall(_G.GameAnalyzerPro.Unload)
-    task.wait(0.8)
+    task.wait(0.5)
 end
 _G.GameAnalyzerPro = {}
-local connections = {}
-local KEYWORDS
-local LastScanTime = 0
-local ScanState = { running = false }
-local monitorActive = false
 
 -- Forward-declare all modules
+local CoreGlobals, Settings, DeepData, KeywordRegistry, Heuristics
+local NetworkScanner, MemoryScanner, TelemetryEngine, GUI_Builder
+local SupabaseUploader, PlayerAnalyzer, ServerSideProbe, BytecodeAnalyzer
 
 -- Global tables
+local connections = {}
+local KEYWORDS -- alias for KeywordRegistry
 
 -- ═══════════════════════════════════════════════════════════════
 -- СЕКЦИЯ 1: УТИЛИТАРНЫЕ ФУНКЦИИ (БАЗОВЫЕ)
@@ -412,7 +239,7 @@ local function deepWalkTable(tbl, maxDepth, path, results, seen)
             end
         elseif type(v) == "string" then
             local lv = v:lower()
-            if lv:find("admin") or lv:find("owner") or lv:find("dev") or lv:find("gm") or lv:find("superadmin") then
+            if lv:find("admin") or lv:find("owner") or lv:find("dev") or lv:find("gm") or lv:found("superadmin") then
                 safeInsert(results.adminHints, { value = v, path = vpath })
             end
             if v:match("^%d%d%d%d%d%d%d+$") then
@@ -573,16 +400,16 @@ local function _initCore()
         RemoteSpy = true,
         DeepAccess = true,
         ClipboardEnabled = CoreGlobals._setclipboard ~= nil,
-        SpyMaxCalls = DeviceProfile.maxSpyCalls,
+        SpyMaxCalls = 1000,
         SessionDuration = 600, -- 10 minutes background session
         BackgroundAudit = true,
         SupabaseUrl = "https://earidffeokvqgffyioxa.supabase.co/storage/v1/object/Report/",
         SupabaseKey = "sb_publishable_vAuejesqMghio6T2VFXXVQ_Bx3-6GCv",
         SupabaseProject = "earidffeokvqgffyioxa",
         SupabaseBucket = "Report",
-        MaxDecompilePerCycle = DeviceProfile.maxDecompile,
-        GCScanLimit = DeviceProfile.maxGC,
-        UpvalueWalkLimit = DeviceProfile.maxUpvalue,
+        MaxDecompilePerCycle = 50,
+        GCScanLimit = 50000,
+        UpvalueWalkLimit = 30000,
         ConstantDumpLimit = 200,
         -- New v6.0 settings
         BackgroundSessionActive = false,
@@ -596,7 +423,6 @@ local function _initCore()
     }
 
     DeepData = {
-        SpiedCallsCB = newCircularBuffer(DeviceProfile.maxSpyCalls),
         CombatRemotes = {}, DamageRemotes = {}, WeaponRemotes = {}, BossRemotes = {},
         AbilityRemotes = {}, UnknownRemotes = {}, MoneyRemotes = {}, AdminRemotes = {},
         HealRemotes = {}, TeleportRemotes = {}, ChatRemotes = {}, SpawnRemotes = {},
@@ -743,32 +569,6 @@ end
 _initKeywords()
 
 -- ═══════════════════════════════════════════════════════════════
-local function cleanNoiseData()
-    DeepData.FullGameTree = {}; DeepData.InstanceClassStats = {}
-    DeepData.Constraints = {}; DeepData.Joints = {}; DeepData.Beams = {}
-    DeepData.Trails = {}; DeepData.BodyMovers = {}; DeepData.Seats = {}
-    DeepData.Dialogs = {}; DeepData.BillboardGuis = {}; DeepData.SurfaceGuis = {}
-    DeepData.ParticleEmitters = {}; DeepData.DecalAssets = {}; DeepData.ImageAssets = {}
-    DeepData.MeshAssets = {}; DeepData.ValueBases = {}
-    DeepData.AllClickDetectors = {}; DeepData.AllProximityPrompts = {}
-    DeepData.PhysicsData = nil; DeepData.TweenInfo = {}; DeepData.AnimationControllers = {}
-    for path, src in pairs(DeepData.AllScriptSources) do
-        if #src > 2000 then DeepData.AllScriptSources[path] = src:sub(1, 2000) end
-    end
-    for path, dump in pairs(DeepData.ModuleReturns) do
-        for k, v in pairs(dump) do
-            if type(v) == "string" and #v > 200 then dump[k] = v:sub(1, 200) end
-        end
-    end
-    -- Rebuild SpiedCalls from circular buffer
-    DeepData.SpiedCalls = {}
-    for item in cbIterate(DeepData.SpiedCallsCB) do table.insert(DeepData.SpiedCalls, item) end
-    while #DeepData.AssetIDs > 200 do table.remove(DeepData.AssetIDs) end
-    while #DeepData.HiddenModels > 50 do table.remove(DeepData.HiddenModels) end
-    collectgarbage("collect")
-    _origWarn("[v7.0] cleaned | mem: " .. gcinfo() .. " KB")
-end
-
 -- СЕКЦИЯ 4: HEURISTICS ENGINE
 -- ═══════════════════════════════════════════════════════════════
 local function _initHeuristics()
@@ -911,7 +711,7 @@ local function _initTelemetry()
             Detail = detail,
             Priority = priority
         }
-        if #DeepData.TelemetryEvents < 200 then _origTableInsert(DeepData.TelemetryEvents, entry) end
+        _origTableInsert(DeepData.TelemetryEvents, entry)
         if priority == "CRITICAL" or priority == "HIGH" then
             _origWarn(_origStringFormat("🔬 [TELEMETRY ⚠️ %s] %s :: %s", priority, name, tostring(detail)))
         end
@@ -987,7 +787,6 @@ local function _initMemoryScanner()
                 snap.TablesCount = snap.TablesCount + 1
             end
             if i > Settings.GCScanLimit then break end
-                task.wait()
         end
         return snap
     end
@@ -1379,13 +1178,11 @@ local function _initServerSideProbe()
         _origPcall(function()
             local ls = game:GetService("LogService")
             ls.MessageOut:Connect(function(message, messageType)
-                if #DeepData.LogMessages < 100 then
-                    _origTableInsert(DeepData.LogMessages, {
-                        time = tick(),
-                        message = message:sub(1, 200),
-                        type = tostring(messageType),
-                    })
-                end
+                _origTableInsert(DeepData.LogMessages, {
+                    time = tick(),
+                    message = message:sub(1, 500),
+                    type = tostring(messageType),
+                })
                 -- Scan for secrets in log messages
                 scanStringForSecrets(message, "LogService:" .. tostring(messageType))
                 -- Detect server-side errors that might reveal structure
@@ -1620,6 +1417,7 @@ local function detectAnticheatType()
     end
 end
 
+local ScanState = { running = false }
 local function scanGarbageCollector()
     if not getgc or ScanState.running then return end
     ScanState.running = true
@@ -1628,7 +1426,7 @@ local function scanGarbageCollector()
             DeepData.GCRemotesFound = {}
             DeepData.GCFunctionsFound = {}
             DeepData.ConstantsFound = {}
-            local BATCH = 20
+            local BATCH = 200
             local gc = getgc(true)
             for i, obj in ipairs(gc) do
                 if type(obj) == "table" then
@@ -1664,11 +1462,9 @@ local function scanGarbageCollector()
                 end
                 if i % BATCH == 0 then task.wait() end
                 if i > Settings.GCScanLimit then break end
-                task.wait()
             end
         end)
         ScanState.running = false
-        collectgarbage("collect")
     end)
 end
 
@@ -1677,7 +1473,7 @@ local function scanUpvalues()
     task.spawn(function()
         _origPcall(function()
             DeepData.UpvalueRemotes = {}
-            local BATCH = FPSTracker:adaptiveBatch(DeviceProfile.batchSize)
+            local BATCH = 150
             for i, fn in ipairs(getgc(true)) do
                 if type(fn) == "function" then
                     _origPcall(function()
@@ -1695,7 +1491,6 @@ local function scanUpvalues()
                 if i > Settings.UpvalueWalkLimit then break end
             end
         end)
-        collectgarbage("collect")
     end)
 end
 
@@ -1726,7 +1521,7 @@ local function attemptDecompile()
             _origPcall(function()
                 local src = decompile(s)
                 if src and type(src) == "string" and #src > 20 then
-                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 3000)
+                    DeepData.DecompiledScripts[s:GetFullName()] = src
                     scanStringForSecrets(src, "decompile:" .. s:GetFullName())
                     count = count + 1
                 end
@@ -1737,7 +1532,7 @@ local function attemptDecompile()
             _origPcall(function()
                 local src = decompile(s)
                 if src and type(src) == "string" and #src > 20 then
-                    DeepData.DecompiledScripts[s:GetFullName()] = src:sub(1, 3000)
+                    DeepData.DecompiledScripts[s:GetFullName()] = src
                     scanStringForSecrets(src, "decompile:" .. s:GetFullName())
                     count = count + 1
                 end
@@ -1805,7 +1600,7 @@ local function scanLoadedModules()
     DeepData.LoadedModules = {}; DeepData.ModuleReturns = {}
     _origPcall(function()
         local ms = getloadedmodules()
-        local BATCH = 20
+        local BATCH = 40
         for i, m in ipairs(ms) do
             _origPcall(function()
                 if typeof(m) == "Instance" and m:IsA("ModuleScript") then
@@ -1841,7 +1636,7 @@ local function megaDumpClosures()
     DeepData.ProtoScan = {}; DeepData.RemoteInvokers = {}
     _origPcall(function()
         local gc = getgc(true)
-        local BATCH = FPSTracker:adaptiveBatch(DeviceProfile.batchSize)
+        local BATCH = 100
         local processed = 0
         local dumpedRemotes = {}
         for i, fn in ipairs(gc) do
@@ -1868,10 +1663,8 @@ local function megaDumpClosures()
             end
             if i % BATCH == 0 then task.wait() end
             if i > Settings.GCScanLimit then break end
-                task.wait()
         end
         DeepData.MegaScanStats.ClosuresProcessed = processed
-        collectgarbage("collect")
     end)
 end
 
@@ -1952,8 +1745,7 @@ local function scanAllScripts()
             end)
             local ok, src = _origPcall(decompile, s)
             if ok and type(src) == "string" and #src > 20 then
-                if #src > 10000 then DeepData.AllScriptSources[s:GetFullName()] = src:sub(1, 3000) .. "\n-- [TRUNCATED: " .. #src .. " bytes total]"
-                else DeepData.AllScriptSources[s:GetFullName()] = src end
+                DeepData.AllScriptSources[s:GetFullName()] = src
                 decompiled = decompiled + 1
                 scanStringForSecrets(src, s:GetFullName())
                 local density = 0
@@ -1990,7 +1782,7 @@ local function scanAllUpvaluesDeep()
     DeepData.DeepWalkResults = { remotes = {}, bindables = {}, userIds = {}, adminHints = {} }
     local seen = {}
     _origPcall(function()
-        local BATCH = 20
+        local BATCH = 80
         for i, fn in ipairs(getgc(true)) do
             if type(fn) == "function" then
                 _origPcall(function()
@@ -2011,7 +1803,6 @@ local function scanAllUpvaluesDeep()
     for _, e in ipairs(DeepData.DeepWalkResults.remotes) do safeInsert(DeepData.UpvalueRemotes, e.obj) end
     for _, e in ipairs(DeepData.DeepWalkResults.adminHints) do safeInsert(DeepData.AdminList, { name = e.value, source = "deep-walk:" .. e.path }) end
     for _, e in ipairs(DeepData.DeepWalkResults.userIds) do safeInsert(DeepData.AdminList, { userId = e.id, source = "deep-walk:" .. e.path }) end
-    collectgarbage("collect")
 end
 
 local function scanCollectionTags()
@@ -2121,9 +1912,11 @@ local function scanAllServices()
         _origPcall(function()
             local svc = game:GetService(svcName)
             if svc then
-                local cnt = 0
-                _origPcall(function() for _, c in ipairs(svc:GetChildren()) do cnt = cnt + 1 end end)
-                DeepData.AllServicesScan[svcName] = { class = svc.ClassName, childCount = cnt }
+                local kids = {}
+                _origPcall(function() for _, c in ipairs(svc:GetChildren()) do
+                    _origTableInsert(kids, { name = c.Name, class = c.ClassName })
+                end end)
+                DeepData.AllServicesScan[svcName] = { class = svc.ClassName, childCount = #kids, children = kids }
             end
         end)
     end
@@ -2152,7 +1945,6 @@ local function buildExploitList()
     for _, obj in ipairs(DeepData.NilParentObjects) do
         if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then add(obj) end
     end
-    DeepData.ExploitList = Dedup.exploits(DeepData.ExploitList)
     table.sort(DeepData.ExploitList, function(a, b)
         if a.score ~= b.score then return (a.score or 0) > (b.score or 0) end
         local order = { CRITICAL = 4, HIGH = 3, MEDIUM = 2, LOW = 1 }
@@ -2163,8 +1955,8 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- СЕКЦИЯ 12: ПОЛНЫЙ АНАЛИЗ
 -- ═══════════════════════════════════════════════════════════════
-function runFullAnalysis(force)
-    local ok, err = _origPcall(function()
+local LastScanTime = 0
+local function runFullAnalysis(force)
     local now = tick()
     if not force and (now - LastScanTime) < 15 then _origWarn("[ANALYZER] Skip (cooldown)"); return end
     LastScanTime = now
@@ -2196,19 +1988,19 @@ function runFullAnalysis(force)
     scanGarbageCollector(); scanUpvalues()
     if Settings.DeepAccess then scanNilParents() end
     scanAllInstances(); scanBindables(); scanLoadedModules()
-    task.wait(0.8)
+    task.wait(0.3)
 
     -- Phase 4: Deep closure analysis
     megaDumpClosures(); scanAllScripts()
     dumpGlobals(); dumpPlayerContext(); scanNetworkOwners()
     scanAllUpvaluesDeep(); scanCollectionTags(); scanAllAttributes()
     scanRunContextAnomalies(); scanPlayerGuis()
-    task.wait(0.8)
+    task.wait(0.3)
 
     -- Phase 5: Services & structure
     scanAllServices()
     if decompile then scanAllScripts() end
-    task.wait(0.8)
+    task.wait(0.3)
 
     -- Phase 6: Backdoors & obfuscation
     attemptDecompile(); scanNamingObfuscation()
@@ -2233,13 +2025,9 @@ function runFullAnalysis(force)
     _origWarn(_origStringFormat("║ 📡 Server findings: %d", #DeepData.ServerSideFindings))
     _origWarn(_origStringFormat("║ 🔤 Constants dumped: %d", #DeepData.DeepConstantDump))
     _origWarn("╚═══════════════════════════════════════════════════╝")
-    end) -- pcall wrap
-    if not ok then _origWarn("[v7.0] ❌ Scan error: " .. tostring(err)) end
 end
 
-    _origPcall(cleanNoiseData)\n\n-- Auto-index new instances
-_origPcall(cleanNoiseData)
-
+-- Auto-index new instances
 ws.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
 rep.DescendantAdded:Connect(function(o) if o then indexObject(o) end end)
 
@@ -2260,7 +2048,8 @@ function RemoteSpy:Install()
                     local args = {...}
                     _origPcall(function()
                         local sig = { rem = self, method = m, args = args, time = tick(), path = self:GetFullName() }
-                        cbPush(DeepData.SpiedCallsCB, sig)
+                        _origTableInsert(DeepData.SpiedCalls, 1, sig)
+                        if #DeepData.SpiedCalls > Settings.SpyMaxCalls then _origTableRemove(DeepData.SpiedCalls) end
                         local key = self:GetFullName()
                         if not DeepData.CallSignatures[key] then
                             DeepData.CallSignatures[key] = { remote = self, samples = {}, count = 0 }
@@ -2331,7 +2120,7 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- СЕКЦИЯ 16: FULL REPORT GENERATOR
 -- ═══════════════════════════════════════════════════════════════
-function fullReportToString()
+local function fullReportToString()
     local out = {}
     local function w(s) _origTableInsert(out, s or "") end
     local function sec(title) w(""); w("╔══════════════════════════════════════════════════════════════╗"); w("║ " .. title); w("╚══════════════════════════════════════════════════════════════╝") end
@@ -2589,7 +2378,7 @@ function AK:Install()
                         end
                     end)
                 end
-                task.wait(0.8)
+                task.wait(0.3)
             end
         end)
         AK.layers = AK.layers + 1
@@ -3315,6 +3104,7 @@ end)
 -- СЕКЦИЯ 21: 10-MINUTE BACKGROUND SESSION
 -- Непрерывный глубокий анализ с периодической облачной отправкой
 -- ═══════════════════════════════════════════════════════════════
+local monitorActive = false
 liteBtn.MouseButton1Click:Connect(function()
     if monitorActive then _origWarn("[⏳ MONITOR] Session already running!"); return end
     monitorActive = true
@@ -3468,119 +3258,7 @@ ServerSideProbe.hookLogService()
 task.spawn(function()
     DeepData.AuditStartTime = tick()
     DeepData.SessionStartTime = tick()
-    -- ═══ ПОЛНЫЙ СТАРТ: Anti-Kick → Instance → GC → Decompile → с GC между фазами ═══
-    _origWarn("[v7.0] 🛡️ Phase 0: Anti-Kick...")
-    _origPcall(function() AK:Install() end)
-    _origPcall(function() AK:Toggle(true) end)
-    task.wait(1)
-    collectgarbage("collect")
-    _origWarn("[v7.0] ✅ AK: " .. tostring(AK.layers) .. " layers")
-
-    -- Phase 1: Instance scan (лёгко)
-    _origWarn("[v7.0] 🔄 Phase 1/5: Instances...")
-    _origPcall(function()
-        DeepData.GameId = game.GameId; DeepData.PlaceId = game.PlaceId; DeepData.GameName = game.Name
-        for _, s in ipairs({rep, ws, game:GetService("StarterPack"), game:GetService("StarterGui"), game:GetService("StarterPlayer")}) do
-            pcall(function() for _, o in ipairs(s:GetDescendants()) do pcall(indexObject, o) end end)
-            task.wait(0.1)
-        end
-        for _, p in ipairs(plrs:GetPlayers()) do
-            local bp = p:FindFirstChild("Backpack")
-            if bp then for _, o in ipairs(bp:GetDescendants()) do pcall(indexObject, o) end end
-        end
-        scanForBosses(); detectAnticheatType()
-        dumpPlayerContext(); scanPlayerGuis()
-        scanBindables(); scanCollectionTags()
-        scanAllAttributes(); scanRunContextAnomalies()
-    end)
-    collectgarbage("collect")
-    task.wait(0.3)
-    MemProfiler:snapshot("Phase1")
-    _origWarn("[v7.0] ✅ Phase 1 done | Exploits so far: " .. #DeepData.ExploitList)
-
-    -- Phase 2: GC scan (средне)
-    _origWarn("[v7.0] 🔄 Phase 2/5: GC + Upvalues...")
-    _origPcall(scanGarbageCollector); task.wait(1)
-    collectgarbage("collect")
-    _origPcall(scanUpvalues); task.wait(0.5)
-    collectgarbage("collect")
-    _origPcall(scanAllInstances); task.wait(0.3)
-    _origPcall(scanLoadedModules)
-    collectgarbage("collect")
-    MemProfiler:snapshot("Phase2")
-    _origWarn("[v7.0] ✅ Phase 2 done")
-
-    -- Phase 3: Closure analysis (тяжело)
-    _origWarn("[v7.0] 🔄 Phase 3/5: Closures + Upvalue deep walk...")
-    _origPcall(megaDumpClosures); task.wait(1)
-    collectgarbage("collect")
-    _origPcall(scanAllUpvaluesDeep); task.wait(0.5)
-    collectgarbage("collect")
-    _origPcall(dumpGlobals); _origPcall(scanNetworkOwners)
-    MemProfiler:snapshot("Phase3")
-    _origWarn("[v7.0] ✅ Phase 3 done")
-
-    -- Phase 4: Decompile (тяжело)
-    _origWarn("[v7.0] 🔄 Phase 4/5: Decompilation...")
-    _origPcall(scanAllScripts); task.wait(1)
-    collectgarbage("collect")
-    _origPcall(attemptDecompile); task.wait(0.5)
-    collectgarbage("collect")
-    _origPcall(scanProtectedInstances)
-    _origPcall(scanNamingObfuscation)
-    MemProfiler:snapshot("Phase4")
-    _origWarn("[v7.0] ✅ Phase 4 done")
-
-    -- Phase 5: Analysis + Ultra modules
-    _origWarn("[v7.0] 🔄 Phase 5/5: Analysis + Exploit list...")
-    _origPcall(buildExploitList)
-    _origPcall(function() PlayerAnalyzer.analyzeAllPlayers() end)
-    _origPcall(function() ServerSideProbe.detectServerScripts() end)
-    _origPcall(function() ServerSideProbe.detectReplicatedRemotes() end)
-    _origPcall(function() ConnectionFingerprinter.analyzeAllConnections() end)
-    _origPcall(function() RiskScorer.scoreAll() end)
-    _origPcall(function() ACDatabase.detect() end)
-    _origPcall(function() BackdoorDetectorV2.scan() end)
-    _origPcall(function() AnomalyDetector.analyzeRemoteFrequency() end)
-    _origPcall(function() PrivEscFinder.findChains() end)
-    _origPcall(function() ExploitChainDetector.buildDependencyGraph() end)
-    _origPcall(function() EnvFingerprint.collect() end)
-    _origPcall(function() DebugDumper.dump() end)
-    collectgarbage("collect")
-
-    DeepData.ScanTime = tick() - DeepData.AuditStartTime
-    _origWarn("[v7.0] ═══════════════════════════════════")
-    _origWarn("[v7.0] ✅ FULL SCAN DONE in " .. _origMathFloor(DeepData.ScanTime) .. "s")
-    _origWarn("[v7.0] 🚪 Exploits: " .. #DeepData.ExploitList)
-    _origWarn("[v7.0] 💰 Money:" .. #DeepData.MoneyRemotes .. " 👑 Admin:" .. #DeepData.AdminRemotes .. " 🛡️ God:" .. #DeepData.GodRemotes)
-    _origWarn("[v7.0] 🚨 Exec:" .. #DeepData.ExecuteRemotes .. " 🔤 Constants:" .. #DeepData.DeepConstantDump)
-    _origWarn("[v7.0] 👥 Players: " .. #DeepData.PlayerBehaviors .. " 🖥️ Server: " .. #DeepData.ServerSideFindings)
-    _origWarn("[v7.0] ═══════════════════════════════════")
-    -- Обновляем GUI
-    _origPcall(refreshExploits); _origPcall(refreshAnalyzer)
-    _origPcall(refreshWorkspaceTree); _origPcall(refreshPlayers)
-    _origPcall(refreshServer); _origPcall(refreshWorld)
-    -- Фоновые процессы
-    _origPcall(function() TelemetryEngine.trackWorldPlayerBehavior() end)
-    _origPcall(function() PerfMonitor.start() end)
-    -- FPS Tracker для адаптивного batch sizing
-    task.spawn(function()
-        local rs = game:GetService("RunService")
-        local count = 0
-        local last = tick()
-        rs.RenderStepped:Connect(function()
-            count = count + 1
-            local now = tick()
-            if now - last >= 1 then
-                FPSTracker:record(count)
-                DeviceProfile.fps = count
-                count = 0
-                last = now
-            end
-        end)
-    end)
-    _origPcall(function() HumanoidMonitor.startMonitoring() end)
-    _origPcall(function() PlayerGuardian.startMonitoring() end)
+    runFullAnalysis(true)
     refreshExploits(searchBox.Text); refreshAnalyzer(); refreshWorkspaceTree()
     refreshPlayers(); refreshServer()
     installTelemetrySniffer()
@@ -3658,6 +3336,7 @@ _origWarn("╚══════════════════════
 -- ADVANCED MODULE 1: CONNECTION FINGERPRINTING
 -- Анализирует все подключения к RemoteEvent/Function
 -- ═══════════════════════════════════════════════════════════════
+local ConnectionFingerprinter = {}
 
 function ConnectionFingerprinter.analyzeAllConnections()
     if not getconnections then return end
@@ -3750,6 +3429,7 @@ end
 -- ADVANCED MODULE 2: HUMANOID PROPERTY MONITOR
 -- Отслеживает подозрительные изменения свойств Humanoid
 -- ═══════════════════════════════════════════════════════════════
+local HumanoidMonitor = {}
 
 function HumanoidMonitor.startMonitoring()
     task.spawn(function()
@@ -3822,6 +3502,7 @@ end
 -- ADVANCED MODULE 3: MARKETPLACE SCANNER
 -- Сканирует MarketplaceService на продукты и gamepass'ы
 -- ═══════════════════════════════════════════════════════════════
+local MarketplaceScanner = {}
 
 function MarketplaceScanner.scan()
     DeepData.MarketplaceProducts = {}
@@ -3870,6 +3551,7 @@ end
 -- ADVANCED MODULE 4: FULL GAME TREE EXTRACTOR
 -- Полное дерево всех инстансов в игре
 -- ═══════════════════════════════════════════════════════════════
+local GameTreeExtractor = {}
 
 function GameTreeExtractor.extract()
     DeepData.FullGameTree = {}
@@ -3949,6 +3631,7 @@ end
 -- ADVANCED MODULE 5: EVERY SCRIPT SCANNER
 -- Декомпилирует ВСЕ скрипты в игре
 -- ═══════════════════════════════════════════════════════════════
+local EveryScriptScanner = {}
 
 function EveryScriptScanner.scanAll()
     if not decompile then return end
@@ -4019,6 +3702,7 @@ end
 -- ADVANCED MODULE 6: FALLBACK GC VIA REGISTRY
 -- Если getgc недоступен, используем getreg
 -- ═══════════════════════════════════════════════════════════════
+local FallbackScanner = {}
 
 function FallbackScanner.scanViaRegistry()
     if not getreg then return end
@@ -4066,6 +3750,7 @@ end
 -- ADVANCED MODULE 7: BACKDOOR DETECTOR
 -- Ищет подозрительные паттерны в декомпилированном коде
 -- ═══════════════════════════════════════════════════════════════
+local BackdoorDetector = {}
 
 function BackdoorDetector.scan()
     DeepData.BackdoorScripts = {}
@@ -4109,6 +3794,7 @@ end
 -- ADVANCED MODULE 8: NETWORK TRAFFIC ANALYZER
 -- Анализирует паттерны сетевой активности
 -- ═══════════════════════════════════════════════════════════════
+local NetworkAnalyzer = {}
 
 function NetworkAnalyzer.analyzeCallPatterns()
     DeepData.MostCalledRemotes = {}
@@ -4167,6 +3853,7 @@ end
 -- ADVANCED MODULE 9: ENHANCED REPORT BUILDER
 -- Расширенный отчёт с JSON экспортом
 -- ═══════════════════════════════════════════════════════════════
+local ReportBuilder = {}
 
 function ReportBuilder.toJSON()
     local data = {
@@ -4301,6 +3988,7 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- ADVANCED MODULE 11: KEYBOARD SHORTCUTS
 -- ═══════════════════════════════════════════════════════════════
+local KeyboardShortcuts = {}
 
 function KeyboardShortcuts.install()
     if not UIS then return end
@@ -4325,6 +4013,7 @@ end
 -- ADVANCED MODULE 12: STRING PATTERN MATCHER v2
 -- Расширенный поиск секретов с новыми паттернами
 -- ═══════════════════════════════════════════════════════════════
+local SecretMatcher = {}
 
 SecretMatcher.patterns = {
     -- Discord
@@ -4394,6 +4083,7 @@ end
 -- ADVANCED MODULE 13: OBFUSCATION DETECTOR v2
 -- Расширенное обнафuscation обнаружение
 -- ═══════════════════════════════════════════════════════════════
+local ObfuscationDetector = {}
 
 function ObfuscationDetector.analyzeScript(path, source)
     if type(source) ~= "string" or #source < 50 then return end
@@ -4450,6 +4140,7 @@ end
 -- ADVANCED MODULE 14: PLAYER GUARDIAN
 -- Мониторит все изменения в PlayerGui
 -- ═══════════════════════════════════════════════════════════════
+local PlayerGuardian = {}
 
 function PlayerGuardian.startMonitoring()
     task.spawn(function()
@@ -4465,7 +4156,7 @@ function PlayerGuardian.startMonitoring()
                             TelemetryEngine.logTelemetry("GUI_DETECTION", d.Name,
                                 "Anti-cheat GUI detected: " .. d:GetFullName(), "HIGH")
                             if AK.active then
-                                task.wait(0.8)
+                                task.wait(0.5)
                                 _origPcall(function() d:Destroy() end)
                                 AK.blocked = AK.blocked + 1
                             end
@@ -4490,6 +4181,7 @@ end
 -- ADVANCED MODULE 15: SAVE/LOAD SCAN CACHE
 -- Сохраняет результаты сканирования между сессиями
 -- ═══════════════════════════════════════════════════════════════
+local ScanCache = {}
 
 function ScanCache.save()
     if not CoreGlobals._writefile then return end
@@ -5057,7 +4749,7 @@ function fullReportToString()
     end
 
     -- ═══ SECTION 31: COMPLETE GAME TREE ═══
-    -- [REMOVED: FullGameTree - use Tree tab instead]
+    sec("🌲 SECTION 31: COMPLETE GAME STRUCTURE (" .. #DeepData.FullGameTree .. " instances)")
     w("")
     w("── Class Distribution ──")
     do
@@ -5084,7 +4776,7 @@ function fullReportToString()
     end
 
     -- ═══ SECTION 32: ALL SERVICES ═══
-    -- [REMOVED: Services dump - use Tree tab instead]
+    sec("🏛️ SECTION 32: ALL ROBLOX SERVICES + CHILDREN")
     for svcName, info in pairs(DeepData.AllServicesScan) do
         w("")
         w("── " .. svcName .. " (" .. info.class .. ", children=" .. info.childCount .. ") ──")
@@ -5211,6 +4903,7 @@ _origPrint("[v6.0] ✅ Mega report builder loaded (35 sections)")
 -- ULTRA MODULE 1: EXPLOIT SCRIPT GENERATOR
 -- Автоматически генерирует готовый Lua код для каждого эксплойта
 -- ═══════════════════════════════════════════════════════════════
+local ExploitScriptGen = {}
 
 function ExploitScriptGen.generate(exp)
     if not exp or not exp.remote then return "-- Invalid exploit" end
@@ -5270,6 +4963,7 @@ end
 -- ULTRA MODULE 2: INSTANCE PROPERTY SCANNER
 -- Сканирует все ValueBase объекты в игре
 -- ═══════════════════════════════════════════════════════════════
+local InstancePropScanner = {}
 
 function InstancePropScanner.scanAllValueBases()
     DeepData.ValueBases = {}
@@ -5317,6 +5011,7 @@ end
 -- ULTRA MODULE 3: WORKSPACE PHYSICS ANALYZER
 -- Анализирует физику мира (гравитация, части, свойства)
 -- ═══════════════════════════════════════════════════════════════
+local PhysicsAnalyzer = {}
 
 function PhysicsAnalyzer.analyze()
     DeepData.PhysicsData = {
@@ -5355,6 +5050,7 @@ end
 -- ULTRA MODULE 4: SOUND/ANIMATION/MESH SCANNER
 -- Извлекает все asset ID'ы из игры
 -- ═══════════════════════════════════════════════════════════════
+local AssetScanner = {}
 
 function AssetScanner.scan()
     DeepData.SoundAssets = {}
@@ -5366,12 +5062,17 @@ function AssetScanner.scan()
     for _, obj in ipairs(game:GetDescendants()) do
         _origPcall(function()
             if obj:IsA("Sound") then
-                _origTableInsert(DeepData.SoundAssets, { id = obj.SoundId:match("(%d+)") or "?", path = obj:GetFullName():sub(1, 60) })
+                _origTableInsert(DeepData.SoundAssets, {
+                    path = obj:GetFullName(), soundId = obj.SoundId,
+                    volume = obj.Volume, looped = obj.Looped,
+                })
                 -- Extract numeric ID
                 local id = obj.SoundId:match("(%d+)")
                 if id then safeInsert(DeepData.AssetIDs, { type = "SOUND_ID", value = id, source = obj:GetFullName() }) end
             elseif obj:IsA("Animation") then
-                _origTableInsert(DeepData.AnimationAssets, { id = obj.AnimationId:match("(%d+)") or "?", path = obj:GetFullName():sub(1, 60) })
+                _origTableInsert(DeepData.AnimationAssets, {
+                    path = obj:GetFullName(), animationId = obj.AnimationId,
+                })
                 local id = obj.AnimationId:match("(%d+)")
                 if id then safeInsert(DeepData.AssetIDs, { type = "ANIMATION_ID", value = id, source = obj:GetFullName() }) end
             elseif obj:IsA("MeshPart") then
@@ -5404,6 +5105,7 @@ end
 -- ULTRA MODULE 5: SPAWN/BOSS/SHOP/QUEST SCANNER
 -- Находит все важные точки на карте
 -- ═══════════════════════════════════════════════════════════════
+local WorldPointScanner = {}
 
 function WorldPointScanner.scan()
     DeepData.SpawnPoints = {}
@@ -5476,6 +5178,7 @@ end
 -- ULTRA MODULE 6: ECONOMY ANALYZER
 -- Анализирует игровую экономику
 -- ═══════════════════════════════════════════════════════════════
+local EconomyAnalyzer = {}
 
 function EconomyAnalyzer.analyze()
     DeepData.EconomyData = {
@@ -5523,6 +5226,7 @@ end
 -- ULTRA MODULE 7: ENVIRONMENT FINGERPRINTER
 -- Полная информация об окружении executor'а
 -- ═══════════════════════════════════════════════════════════════
+local EnvFingerprint = {}
 
 function EnvFingerprint.collect()
     DeepData.EnvData = {
@@ -5621,6 +5325,7 @@ end
 -- ═══════════════════════════════════════════════════════════════
 -- ULTRA MODULE 9: NEAREST PLAYER FINDER
 -- ═══════════════════════════════════════════════════════════════
+local NearestPlayer = {}
 
 function NearestPlayer.find()
     if not lp.Character then return nil end
@@ -5647,6 +5352,7 @@ end
 -- ULTRA MODULE 10: COMPREHENSIVE DEBUG DUMP
 -- Собирает ВСЕ возможные данные для отладки
 -- ═══════════════════════════════════════════════════════════════
+local DebugDumper = {}
 
 function DebugDumper.dump()
     DeepData.DebugDump = {
@@ -5681,12 +5387,15 @@ local _origRunFull = runFullAnalysis
 function runFullAnalysis(force)
     _origRunFull(force)
     -- Ultra scans (after main scan)
-            _origPcall(function() AssetScanner.scan() end)
+    _origPcall(function() InstancePropScanner.scanAllValueBases() end)
+    _origPcall(function() PhysicsAnalyzer.analyze() end)
+    _origPcall(function() AssetScanner.scan() end)
     _origPcall(function() WorldPointScanner.scan() end)
     _origPcall(function() EconomyAnalyzer.analyze() end)
     _origPcall(function() ConnectionFingerprinter.analyzeAllConnections() end)
     _origPcall(function() MarketplaceScanner.scan() end)
-        _origPcall(function() EveryScriptScanner.scanAll() end)
+    _origPcall(function() GameTreeExtractor.extract() end)
+    _origPcall(function() EveryScriptScanner.scanAll() end)
     _origPcall(function() BackdoorDetector.scan() end)
     _origPcall(function() NetworkAnalyzer.analyzeCallPatterns() end)
     _origPcall(function() ObfuscationDetector.analyzeScript("global", _origTableConcat(
@@ -5701,22 +5410,6 @@ end
 -- ═══════════════════════════════════════════════════════════════
 _origPcall(function() EnvFingerprint.collect() end)
 _origPcall(function() PerfMonitor.start() end)
-    -- FPS Tracker для адаптивного batch sizing
-    task.spawn(function()
-        local rs = game:GetService("RunService")
-        local count = 0
-        local last = tick()
-        rs.RenderStepped:Connect(function()
-            count = count + 1
-            local now = tick()
-            if now - last >= 1 then
-                FPSTracker:record(count)
-                DeviceProfile.fps = count
-                count = 0
-                last = now
-            end
-        end)
-    end)
 _origPcall(function() HumanoidMonitor.startMonitoring() end)
 _origPcall(function() PlayerGuardian.startMonitoring() end)
 _origPcall(function() NetworkAnalyzer.installFireServerHook() end)
@@ -5971,45 +5664,9 @@ end)
 -- ═══════════════════════════════════════════════════════════════
 -- Patch the scan button to refresh all panels
 scanBtn.MouseButton1Click:Connect(function()
-    scanBtn.Text = "🔄 DEEP SCAN..."
+    scanBtn.Text = "🔄 SCANNING..."
     task.spawn(function()
-        -- Phase 1: Instance scan (быстро)
-        _origPcall(function()
-            for _, s in ipairs({rep, ws}) do
-                pcall(function() for _, o in ipairs(s:GetDescendants()) do pcall(indexObject, o) end end)
-                task.wait(0.2)
-            end
-            scanForBosses(); detectAnticheatType()
-            dumpPlayerContext(); scanPlayerGuis()
-            scanBindables(); scanCollectionTags()
-        end)
-        task.wait(0.3)
-        -- Phase 2: GC scan (тяжело, но по кнопке ОК)
-        _origWarn("[v7.0] 🔄 Deep scan: GC + Upvalues...")
-        _origPcall(function() scanGarbageCollector() end)
-        task.wait(2)
-        _origPcall(function() scanUpvalues() end)
-        task.wait(1)
-        _origPcall(function() scanAllInstances() end)
-        task.wait(0.8)
-        _origPcall(function() scanLoadedModules() end)
-        task.wait(0.8)
-        -- Phase 3: Closure dump (тяжело)
-        _origWarn("[v7.0] 🔄 Deep scan: Closures + Decompilation...")
-        _origPcall(function() megaDumpClosures() end)
-        task.wait(2)
-        _origPcall(function() scanAllScripts() end)
-        task.wait(1)
-        _origPcall(function() attemptDecompile() end)
-        task.wait(0.8)
-        -- Phase 4: Finalize
-        _origPcall(function() scanNamingObfuscation() end)
-        _origPcall(buildExploitList)
-        _origPcall(function() PlayerAnalyzer.analyzeAllPlayers() end)
-        _origPcall(function() ServerSideProbe.detectServerScripts() end)
-        _origPcall(function() RiskScorer.scoreAll() end)
-        _origPcall(function() BackdoorDetectorV2.scan() end)
-        -- Обновляем GUI
+        runFullAnalysis(true)
         _origPcall(function() refreshExploits(searchBox.Text) end)
         _origPcall(refreshAnalyzer)
         _origPcall(refreshWorkspaceTree)
@@ -6019,7 +5676,7 @@ scanBtn.MouseButton1Click:Connect(function()
         _origPcall(refreshSpy)
         scanBtn.Text = "🔄 OK: " .. #DeepData.ExploitList
         task.wait(3); scanBtn.Text = "🔄 SCAN"
-        showToast(mf, "Deep scan done! " .. #DeepData.ExploitList .. " exploits", Color3.fromRGB(0, 150, 100))
+        showToast(mf, "Scan complete! " .. #DeepData.ExploitList .. " exploits found.", Color3.fromRGB(0, 150, 100))
     end)
 end)
 
@@ -6135,6 +5792,17 @@ end
 -- ═══════════════════════════════════════════════════════════════
 
 -- Additional scan: Scan all folders for hidden scripts
+local function scanFoldersForHidden()
+    DeepData.HiddenFolders = {}
+    for _, root in ipairs({ws, rep, game:GetService("StarterGui"), game:GetService("StarterPlayer")}) do
+        _origPcall(function()
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("Folder") then
+                    local nm = safeLower(d.Name)
+                    if nm:find("admin") or nm:find("ac") or nm:find("anticheat") or nm:find("security") or
+                       nm:find("hidden") or nm:find("secret") or nm:find("internal") or nm:find("system") then
+                        safeInsert(DeepData.HiddenFolders, { path = d:GetFullName(), name = d.Name })
+                    end
                 end
             end
         end)
@@ -6142,6 +5810,20 @@ end
 end
 
 -- Additional scan: Find all ModuleScripts and their require results
+local function scanAllModuleReturns()
+    DeepData.ModuleReturns = DeepData.ModuleReturns or {}
+    for _, root in ipairs({ws, rep, game:GetService("StarterGui"), game:GetService("StarterPlayer"), game:GetService("StarterPack")}) do
+        _origPcall(function()
+            for _, d in ipairs(root:GetDescendants()) do
+                if d:IsA("ModuleScript") then
+                    _origPcall(function()
+                        local ok, ret = _origPcall(require, d)
+                        if ok and type(ret) == "table" then
+                            local dump = {}
+                            local cnt = 0
+                            for k, v in pairs(ret) do
+                                cnt = cnt + 1
+                                if cnt > 30 then break end
                                 if typeof(v) == "Instance" then
                                     dump[tostring(k)] = "Instance:" .. v.ClassName
                                     if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
@@ -6168,46 +5850,184 @@ end
 end
 
 -- Additional scan: Find all ClickDetectors and ProximityPrompts
+local function scanInteractions()
+    DeepData.AllClickDetectors = {}
+    DeepData.AllProximityPrompts = {}
+    for _, obj in ipairs(game:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("ClickDetector") then
+                _origTableInsert(DeepData.AllClickDetectors, {
+                    path = obj:GetFullName(),
+                    maxDistance = obj.MaxActivationDistance,
+                    cursorIcon = obj.CursorIcon,
+                })
+            elseif obj:IsA("ProximityPrompt") then
+                _origTableInsert(DeepData.AllProximityPrompts, {
+                    path = obj:GetFullName(),
+                    actionText = obj.ActionText,
+                    objectText = obj.ObjectText,
+                    holdDuration = obj.HoldDuration,
+                    maxActivationDistance = obj.MaxActivationDistance,
+                    enabled = obj.Enabled,
+                    requiresLineOfSight = obj.RequiresLineOfSight,
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all Tween/Animation instances
+local function scanTweensAndAnimations()
+    DeepData.TweenInfo = {}
+    DeepData.AnimationControllers = {}
+    for _, obj in ipairs(ws:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("TweenService") then
+                safeInsert(DeepData.TweenInfo, { path = obj:GetFullName() })
+            elseif obj:IsA("AnimationController") or obj:IsA("Humanoid") then
+                safeInsert(DeepData.AnimationControllers, {
+                    path = obj:GetFullName(),
+                    class = obj.ClassName,
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all BillboardGui and SurfaceGui
+local function scanGuis()
+    DeepData.BillboardGuis = {}
+    DeepData.SurfaceGuis = {}
+    for _, obj in ipairs(game:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("BillboardGui") then
+                _origTableInsert(DeepData.BillboardGuis, {
+                    path = obj:GetFullName(),
+                    enabled = obj.Enabled,
+                    size = tostring(obj.Size),
+                    studsOffset = tostring(obj.StudsOffset),
+                })
+            elseif obj:IsA("SurfaceGui") then
+                _origTableInsert(DeepData.SurfaceGuis, {
+                    path = obj:GetFullName(),
+                    enabled = obj.Enabled,
+                    face = tostring(obj.Face),
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all ParticleEmitters and Beams
+local function scanEffects()
+    DeepData.ParticleEmitters = {}
+    DeepData.Beams = {}
+    DeepData.Trails = {}
+    for _, obj in ipairs(ws:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("ParticleEmitter") then
+                _origTableInsert(DeepData.ParticleEmitters, {
+                    path = obj:GetFullName(),
+                    texture = obj.Texture,
+                    rate = obj.Rate,
+                    lifetime = tostring(obj.Lifetime),
+                })
+            elseif obj:IsA("Beam") then
+                _origTableInsert(DeepData.Beams, {
+                    path = obj:GetFullName(),
+                    texture = obj.Texture,
+                })
+            elseif obj:IsA("Trail") then
+                _origTableInsert(DeepData.Trails, {
+                    path = obj:GetFullName(),
+                    texture = obj.Texture,
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all Constraints (Springs, Ropes, etc.)
+local function scanConstraints()
+    DeepData.Constraints = {}
+    for _, obj in ipairs(ws:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("Constraint") then
+                _origTableInsert(DeepData.Constraints, {
+                    path = obj:GetFullName(),
+                    class = obj.ClassName,
+                    enabled = obj.Enabled,
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all Welds and Motor6Ds
+local function scanJoints()
+    DeepData.Joints = {}
+    for _, obj in ipairs(ws:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("Motor6D") or obj:IsA("Weld") or obj:IsA("WeldConstraint") or
+               obj:IsA("Snap") or obj:IsA("ManualWeld") then
+                _origTableInsert(DeepData.Joints, {
+                    path = obj:GetFullName(),
+                    class = obj.ClassName,
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all BodyMovers (for exploit detection)
+local function scanBodyMovers()
+    DeepData.BodyMovers = {}
+    for _, obj in ipairs(ws:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("BodyVelocity") or obj:IsA("BodyPosition") or obj:IsA("BodyGyro") or
+               obj:IsA("BodyForce") or obj:IsA("BodyThrust") or obj:IsA("LinearVelocity") or
+               obj:IsA("AlignPosition") or obj:IsA("AngularVelocity") or obj:IsA("VectorForce") then
+                _origTableInsert(DeepData.BodyMovers, {
+                    path = obj:GetFullName(),
+                    class = obj.ClassName,
+                    maxForce = obj:IsA("BodyVelocity") and tostring(obj.MaxForce) or "",
+                    velocity = obj:IsA("BodyVelocity") and tostring(obj.Velocity) or "",
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all VehicleSeat and Seat
+local function scanSeats()
+    DeepData.Seats = {}
+    for _, obj in ipairs(ws:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("VehicleSeat") or obj:IsA("Seat") then
+                _origTableInsert(DeepData.Seats, {
+                    path = obj:GetFullName(),
+                    class = obj.ClassName,
+                    disabled = obj.Disabled,
+                    maxSpeed = obj:IsA("VehicleSeat") and obj.MaxSpeed or nil,
+                    torque = obj:IsA("VehicleSeat") and obj.Torque or nil,
+                })
+            end
         end)
     end
 end
 
 -- Additional scan: Find all Dialog (NPC conversations)
+local function scanDialogs()
+    DeepData.Dialogs = {}
+    for _, obj in ipairs(ws:GetDescendants()) do
+        _origPcall(function()
+            if obj:IsA("Dialog") then
+                _origTableInsert(DeepData.Dialogs, {
+                    path = obj:GetFullName(),
+                    prompt = obj.InitialPrompt,
+                    purpose = tostring(obj.Purpose),
+                })
+            end
         end)
     end
 end
@@ -6219,7 +6039,18 @@ local _superRun = runFullAnalysis
 function runFullAnalysis(force)
     _superRun(force)
     -- Additional deep scans
-                                            end
+    _origPcall(scanFoldersForHidden)
+    _origPcall(scanAllModuleReturns)
+    _origPcall(scanInteractions)
+    _origPcall(scanTweensAndAnimations)
+    _origPcall(scanGuis)
+    _origPcall(scanEffects)
+    _origPcall(scanConstraints)
+    _origPcall(scanJoints)
+    _origPcall(scanBodyMovers)
+    _origPcall(scanSeats)
+    _origPcall(scanDialogs)
+end
 
 -- ═══════════════════════════════════════════════════════════════
 -- ENHANCED REPORT: Include all additional scan data
@@ -6331,1064 +6162,4 @@ _origWarn("║ Press 🔄 SCAN for instant full analysis")
 _origWarn("║ Press 📋 CLOUD to upload to Supabase")
 _origWarn("║ Press 🔥 EXEC to fire all found exploits")
 _origWarn("║ Ctrl+Shift+S = Scan | Ctrl+Shift+E = Toggle GUI")
-_origWarn("╚══════════════════════════════════════════════════════════════╝")
---[[ 
- ============================================================================
- 🔬 GAME ANALYZER v7.0 ULTIMATE — PROMPT FROM CLAUDE INTEGRATION
- ============================================================================
- Все фичи из Claude-промта которые реально реализуемы в Luau:
-   
- TIER 1: ✅ Интеллектуальный поиск уязвимостей
-   - Exploit Chain Detection (цепочки эксплойтов)
-   - Вероятностная модель оценки
-   - Контекстный анализ
-
- TIER 1: ✅ Продвинутый байткод-анализ
-   - Дизассемблирование констант
-   - Обнаружение VM-based obfuscation
-   - Анализ stack-операций через upvalues
-
- TIER 1: ✅ Динамический анализ с stack trace
-   - Запись стека вызовов для каждого RemoteEvent
-   - Timing analysis (задержки между вызовами)
-   - Анализ типов аргументов
-
- TIER 1: ✅ Граф-анализ зависимостей
-   - Построение графа RemoteEvent → Handler → Modules
-   - Обнаружение циклов
-   - Critical path analysis
-
- TIER 2: ✅ ML-подобный классификатор
-   - Weighted scoring на основе сигнатур
-   - Кластеризация неизвестных эксплойтов
-   - Вероятностный вывод
-
- TIER 2: ✅ AC Reverse Engineering (расширенный)
-   - База 50+ AC сигнатур
-   - Определение слабых точек
-   - Предложение bypass'ов
-
- TIER 2: ✅ Обфускация-детектор v3
-   - Scoring 0-100
-   - Попытка частичной деобфускации
-   - Сигнатуры obfuscators
-
- TIER 2: ✅ Анализ экономики (расширенный)
-   - Картирование валют
-   - Обнаружение способов фарма
-   - Анализ progression
-
- TIER 2: ✅ Поведенческий анализ (расширенный)
-   - Обнаружение телепортации/noclip/speed
-   - Анализ инвентаря
-   - Паттерны подозрительного поведения
-
- TIER 3: ✅ Smart Fuzzing
-   - Mutation-based fuzzing
-   - Feedback-based (изменение по результатам)
-   - Обнаружение через побочные эффекты
-
- TIER 3: ✅ Сетевой анализ (расширенный)
-   - Анализ протокола
-   - Timing attacks
-   - Аномалии в поведении
-
- TIER 3: ✅ Backdoor Detection (расширенный)
-   - 50+ сигнатур
-   - Анализ веб-запросов
-   - Скрытые admin-панели
-
- TIER 3: ✅ Privilege Escalation Chains
-   - Автопоиск цепочек low→high
-   - Race condition detection
-
- TIER 4: ✅ Auto Code Generator (расширенный)
-   - Множественные варианты
-   - Multi-try с разными аргументами
-
- TIER 4: ✅ Enhanced Reporting
-   - Diff между сканами
-   - Comparison engine
-
- TIER 4: ✅ Continuous Monitoring (расширенный)
-   - Diff-based change detection
-   - Alerts на новые эксплойты
-
- TIER 5: ✅ Anomaly Detector
-   - Statistical outlier detection
-   - Time-series analysis
-
- TIER 5: ✅ Correlation Analysis
-   - Матрица корреляций между эксплойтами
-
- TIER 5: ✅ CVSS-like Risk Scoring
-   - Accessibility + Impact + Exploitability
-   - Score 0-100
- ============================================================================
-]]
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 1: EXPLOIT CHAIN DETECTOR
--- Автоматически находит цепочки: simple exploit → RCE
--- ═══════════════════════════════════════════════════════════════
-
-function ExploitChainDetector.buildDependencyGraph()
-    DeepData.DependencyGraph = { nodes = {}, edges = {}, cycles = {} }
-    local graph = DeepData.DependencyGraph
-
-    -- Create nodes for all remotes
-    for _, cat in ipairs({"MoneyRemotes","AdminRemotes","GodRemotes","ExecuteRemotes",
-        "CombatRemotes","DamageRemotes","ShopRemotes","TeleportRemotes","KillRemotes",
-        "DeleteRemotes","HighValueRemotes","UnknownRemotes","DataStoreRemotes","SessionRemotes"}) do
-        for _, r in ipairs(DeepData[cat] or {}) do
-            _origPcall(function()
-                local id = r:GetFullName()
-                graph.nodes[id] = {
-                    remote = r, name = r.Name, class = r.ClassName,
-                    category = cat, connections = {},
-                }
-            end)
-        end
-    end
-
-    -- Build edges from upvalue analysis (remote A references remote B)
-    for _, fp in ipairs(DeepData.ConnectionFingerprints or {}) do
-        if graph.nodes[fp.path] then
-            for _, upPath in ipairs(fp.upvalues or {}) do
-                if graph.nodes[upPath] then
-                    _origTableInsert(graph.edges, { from = fp.path, to = upPath, type = "upvalue" })
-                    _origTableInsert(graph.nodes[fp.path].connections, upPath)
-                end
-            end
-        end
-    end
-
-    -- Build edges from constant analysis (handler references other remote names)
-    for _, fp in ipairs(DeepData.ConnectionFingerprints or {}) do
-        for _, const in ipairs(fp.constants or {}) do
-            for nodeId, node in pairs(graph.nodes) do
-                if nodeId ~= fp.path and node.name == const then
-                    _origTableInsert(graph.edges, { from = fp.path, to = nodeId, type = "constant_ref" })
-                    _origTableInsert(graph.nodes[fp.path].connections, nodeId)
-                end
-            end
-        end
-    end
-
-    -- Detect cycles (A → B → C → A)
-    local function findCycles(nodeId, visited, stack, path)
-        visited[nodeId] = true
-        stack[nodeId] = true
-        _origTableInsert(path, nodeId)
-        for _, conn in ipairs(graph.nodes[nodeId] and graph.nodes[nodeId].connections or {}) do
-            if not visited[conn] then
-                findCycles(conn, visited, stack, path)
-            elseif stack[conn] then
-                -- Found cycle
-                local cycleStart = 1
-                for i, p in ipairs(path) do if p == conn then cycleStart = i; break end end
-                local cycle = {}
-                for i = cycleStart, #path do _origTableInsert(cycle, path[i]) end
-                _origTableInsert(cycle, conn)
-                _origTableInsert(graph.cycles, cycle)
-            end
-        end
-        path[#path] = nil
-        stack[nodeId] = nil
-    end
-
-    local visited, stack = {}, {}
-    for nodeId, _ in pairs(graph.nodes) do
-        if not visited[nodeId] then
-            findCycles(nodeId, visited, stack, {})
-        end
-    end
-
-    -- Build exploit chains
-    DeepData.ExploitChains = {}
-    -- Chain pattern: money → shop → admin (escalation)
-    local chainPatterns = {
-        { from = "money", to = "admin", desc = "Money → Admin escalation" },
-        { from = "money", to = "execute", desc = "Money → RCE chain" },
-        { from = "shop", to = "admin", desc = "Shop → Admin escalation" },
-        { from = "datastore", to = "admin", desc = "DataStore → Admin chain" },
-        { from = "session", to = "admin", desc = "Session hijack → Admin" },
-        { from = "trade", to = "money", desc = "Trade duplication" },
-        { from = "roll", to = "money", desc = "Gacha exploit → infinite money" },
-        { from = "upgrade", to = "god", desc = "Upgrade → God mode" },
-        { from = "spawn", to = "execute", desc = "Spawn → RCE chain" },
-        { from = "teleport", to = "admin", desc = "Teleport → Admin area access" },
-    }
-    for _, pattern in ipairs(chainPatterns) do
-        for fromId, fromNode in pairs(graph.nodes) do
-            if matchAny(fromNode.category or "", {pattern.from}) then
-                for _, edge in ipairs(graph.edges) do
-                    if edge.from == fromId then
-                        local toNode = graph.nodes[edge.to]
-                        if toNode and matchAny(toNode.category or "", {pattern.to}) then
-                            _origTableInsert(DeepData.ExploitChains, {
-                                start = fromId,
-                                finish = edge.to,
-                                description = pattern.desc,
-                                startRisk = "MEDIUM",
-                                finishRisk = "CRITICAL",
-                                chainLength = 2,
-                            })
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 2: CVSS-LIKE RISK SCORING
--- Профессиональная система оценки уязвимостей (0-100)
--- ═══════════════════════════════════════════════════════════════
-
--- Весовые коэффициенты для каждого фактора
-RiskScorer.weights = {
-    accessibility = 0.25,  -- Насколько легко использовать
-    impact = 0.35,         -- Какой ущерб наносит
-    exploitability = 0.25, -- Есть ли рабочие tools
-    exposure = 0.15,       -- Насколько широко известна
-}
-
-function RiskScorer.calculateScore(exp)
-    local scores = {}
-
-    -- Accessibility (0-100): насколько просто эксплуатировать
-    local accessScore = 50 -- базовый
-    -- Если есть записанные аргументы — проще
-    if exp.suggestedArgs and #exp.suggestedArgs > 0 then accessScore = accessScore + 20 end
-    -- Если есть реальные вызовы — доказано работоспособно
-    local key = exp.remote and exp.remote:GetFullName()
-    if key and DeepData.CallSignatures[key] and DeepData.CallSignatures[key].count > 0 then
-        accessScore = accessScore + 15
-    end
-    -- Если RemoteEvent (не Function) — проще (не нужно ждать ответ)
-    if exp.class == "RemoteEvent" then accessScore = accessScore + 5 end
-    -- Если имя содержит простые слова — проще найти
-    if #exp.name < 15 then accessScore = accessScore + 5 end
-    scores.accessibility = _origMathMin(100, accessScore)
-
-    -- Impact (0-100): какой ущерб
-    local impactScore = 10
-    local riskMap = { CRITICAL = 90, HIGH = 70, MEDIUM = 40, LOW = 15 }
-    impactScore = riskMap[exp.risk] or 30
-    -- Дополнительные бонусы за конкретные типы
-    if exp.category == "money" then impactScore = impactScore + 10 end
-    if exp.category == "admin" then impactScore = impactScore + 15 end
-    if exp.category == "execute" then impactScore = impactScore + 20 end
-    if exp.category == "critical" then impactScore = impactScore + 25 end
-    if exp.category == "god" then impactScore = impactScore + 10 end
-    scores.impact = _origMathMin(100, impactScore)
-
-    -- Exploitability (0-100): есть ли рабочие инструменты
-    local exploitScore = 30
-    if exp.suggestedArgs and #exp.suggestedArgs > 0 then exploitScore = exploitScore + 25 end
-    if key and DeepData.CallSignatures[key] then
-        local sig = DeepData.CallSignatures[key]
-        if sig.count > 10 then exploitScore = exploitScore + 20 end
-        if #sig.samples > 3 then exploitScore = exploitScore + 15 end
-    end
-    -- Если remote не заблокирован AC
-    if not matchAny(exp.path:lower(), KEYWORDS.honey) then exploitScore = exploitScore + 10 end
-    scores.exploitability = _origMathMin(100, exploitScore)
-
-    -- Exposure (0-100): насколько широко известен паттерн
-    local exposureScore = 40
-    -- Если имя remote содержит общие слова — скорее всего стандартный паттерн
-    if matchAny(exp.name:lower(), {"money","damage","kill","heal","teleport","shop"}) then
-        exposureScore = exposureScore + 30
-    end
-    -- Если в глубине дерева — менее заметен
-    local depth = 0
-    for _ in exp.path:gmatch("%.") do depth = depth + 1 end
-    if depth > 5 then exposureScore = exposureScore - 15 end
-    scores.exposure = _origMathMax(0, _origMathMin(100, exposureScore))
-
-    -- Weighted final score
-    local finalScore = 0
-    for factor, weight in pairs(RiskScorer.weights) do
-        finalScore = finalScore + (scores[factor] or 0) * weight
-    end
-    finalScore = _origMathFloor(finalScore)
-
-    return {
-        total = finalScore,
-        breakdown = scores,
-        grade = finalScore >= 80 and "CRITICAL" or
-                finalScore >= 60 and "HIGH" or
-                finalScore >= 40 and "MEDIUM" or "LOW",
-    }
-end
-
-function RiskScorer.scoreAll()
-    DeepData.RiskScores = {}
-    for _, exp in ipairs(DeepData.ExploitList) do
-        local result = RiskScorer.calculateScore(exp)
-        DeepData.RiskScores[exp.path] = result
-        exp.cvssScore = result.total
-        exp.cvssGrade = result.grade
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 3: ANOMALY DETECTOR
--- Statistical outlier detection для необычного поведения
--- ═══════════════════════════════════════════════════════════════
-
-function AnomalyDetector.analyzeRemoteFrequency()
-    -- Собираем статистику вызовов
-    local frequencies = {}
-    for path, sig in pairs(DeepData.CallSignatures) do
-        _origTableInsert(frequencies, { path = path, count = sig.count })
-    end
-    if #frequencies < 2 then return end
-
-    -- Вычисляем среднее и стандартное отклонение
-    local sum = 0
-    for _, f in ipairs(frequencies) do sum = sum + f.count end
-    local mean = sum / #frequencies
-
-    local variance = 0
-    for _, f in ipairs(frequencies) do
-        variance = variance + (f.count - mean) ^ 2
-    end
-    local stddev = math.sqrt(variance / #frequencies)
-
-    -- Находим outliers (> 2 стандартных отклонения)
-    DeepData.Anomalies = { highFrequency = {}, zeroFrequency = {} }
-    for _, f in ipairs(frequencies) do
-        if f.count > mean + 2 * stddev then
-            _origTableInsert(DeepData.Anomalies.highFrequency, {
-                path = f.path, count = f.count,
-                zScore = stddev > 0 and (f.count - mean) / stddev or 0,
-                anomaly = "HIGH_FREQUENCY",
-            })
-        elseif f.count == 0 then
-            _origTableInsert(DeepData.Anomalies.zeroFrequency, {
-                path = f.path, anomaly = "DORMANT_REMOTE",
-            })
-        end
-    end
-end
-
-function AnomalyDetector.analyzePlayerBehavior()
-    DeepData.PlayerAnomalies = {}
-    for name, data in pairs(DeepData.PlayerBehaviors or {}) do
-        _origPcall(function()
-            local anomalies = {}
-            if data.characterData then
-                local cd = data.characterData
-                -- Speed anomaly
-                if cd.walkSpeed > 50 then
-                    _origTableInsert(anomalies, {
-                        type = "HIGH_SPEED", value = cd.walkSpeed,
-                        expected = "16-24", severity = "HIGH",
-                    })
-                end
-                -- Jump anomaly
-                if cd.jumpPower > 100 then
-                    _origTableInsert(anomalies, {
-                        type = "HIGH_JUMP", value = cd.jumpPower,
-                        expected = "50-75", severity = "MEDIUM",
-                    })
-                end
-                -- Health anomaly (god mode)
-                if cd.health > cd.maxHealth then
-                    _origTableInsert(anomalies, {
-                        type = "HEALTH_OVERFLOW", value = cd.health,
-                        expected = "<=" .. cd.maxHealth, severity = "CRITICAL",
-                    })
-                end
-                -- Max health anomaly
-                if cd.maxHealth > 10000 then
-                    _origTableInsert(anomalies, {
-                        type = "INFINITE_HP", value = cd.maxHealth,
-                        expected = "100-1000", severity = "HIGH",
-                    })
-                end
-            end
-            -- Account age anomaly (very new account)
-            if data.accountAge and data.accountAge < 1 then
-                _origTableInsert(anomalies, {
-                    type = "NEW_ACCOUNT", value = data.accountAge,
-                    expected = ">7 days", severity = "LOW",
-                })
-            end
-            if #anomalies > 0 then
-                DeepData.PlayerAnomalies[name] = anomalies
-            end
-        end)
-    end
-end
-
-function AnomalyDetector.analyzeMemoryTrends()
-    DeepData.MemoryTrend = { samples = {}, trend = "stable" }
-    if #PerfMonitor.samples < 10 then return end
-
-    -- Collect memory samples
-    for _, s in ipairs(PerfMonitor.samples) do
-        _origTableInsert(DeepData.MemoryTrend.samples, {
-            time = s.time, memory = s.memory,
-        })
-    end
-
-    -- Simple trend detection (last 10 vs first 10)
-    local samples = DeepData.MemoryTrend.samples
-    if #samples >= 20 then
-        local earlySum, lateSum = 0, 0
-        for i = 1, 10 do earlySum = earlySum + samples[i].memory end
-        for i = #samples - 9, #samples do lateSum = lateSum + samples[i].memory end
-        local earlyAvg = earlySum / 10
-        local lateAvg = lateSum / 10
-        local change = lateAvg - earlyAvg
-        if change > 500 then
-            DeepData.MemoryTrend.trend = "LEAKING"
-            TelemetryEngine.logTelemetry("ANOMALY", "Memory Leak",
-                _origStringFormat("Memory growing: %.0f KB → %.0f KB (+%.0f KB)", earlyAvg, lateAvg, change), "HIGH")
-        elseif change < -200 then
-            DeepData.MemoryTrend.trend = "DECREASING"
-        else
-            DeepData.MemoryTrend.trend = "STABLE"
-        end
-        DeepData.MemoryTrend.change = change
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 4: SMART FUZZER
--- Mutation-based argument fuzzing для RemoteEvent'ов
--- ═══════════════════════════════════════════════════════════════
-
--- Базовые мутации для разных типов данных
-SmartFuzzer.mutations = {
-    numbers = {0, -1, 1, 999999999, -999999999, 0.0001, math.huge, -math.huge, 2147483647, 4294967295},
-    strings = {"", "a", string.rep("A", 1000), "nil", "undefined", "null", "true", "false", "0", "-1",
-               "../../etc/passwd", "<script>alert(1)</script>", "'; DROP TABLE--"},
-    booleans = {true, false},
-    vectors = {Vector3.new(0,0,0), Vector3.new(math.huge, 0, 0), Vector3.new(99999, 99999, 99999)},
-}
-
-function SmartFuzzer.mutateArgs(originalArgs)
-    if type(originalArgs) ~= "table" then return {} end
-    local mutations = {}
-    -- Copy original
-    local original = {}
-    for k, v in pairs(originalArgs) do original[k] = v end
-    _origTableInsert(mutations, original)
-    -- Mutate each argument
-    for i, v in ipairs(originalArgs) do
-        if type(v) == "number" then
-            for _, mut in ipairs(SmartFuzzer.mutations.numbers) do
-                local m = {}
-                for k, val in pairs(originalArgs) do m[k] = val end
-                m[i] = mut
-                _origTableInsert(mutations, m)
-            end
-        elseif type(v) == "string" then
-            for _, mut in ipairs(SmartFuzzer.mutations.strings) do
-                local m = {}
-                for k, val in pairs(originalArgs) do m[k] = val end
-                m[i] = mut
-                _origTableInsert(mutations, m)
-            end
-        elseif type(v) == "boolean" then
-            local m = {}
-            for k, val in pairs(originalArgs) do m[k] = val end
-            m[i] = not v
-            _origTableInsert(mutations, m)
-        end
-    end
-    return mutations
-end
-
-function SmartFuzzer.fuzzExploit(exp, maxAttempts)
-    maxAttempts = maxAttempts or 10
-    if not exp or not exp.remote or not exp.remote.Parent then return end
-    local rem = exp.remote
-    local results = { attempts = 0, successes = 0, errors = {} }
-
-    -- Try with recorded args first
-    local key = rem:GetFullName()
-    if DeepData.CallSignatures[key] and #DeepData.CallSignatures[key].samples > 0 then
-        for _, args in ipairs(DeepData.CallSignatures[key].samples) do
-            local mutations = SmartFuzzer.mutateArgs(args)
-            for _, mut in ipairs(mutations) do
-                if results.attempts >= maxAttempts then break end
-                results.attempts = results.attempts + 1
-                local ok, err = _origPcall(function()
-                    if rem:IsA("RemoteEvent") then
-                        rem:FireServer(_origUnpack(mut))
-                    elseif rem:IsA("RemoteFunction") then
-                        task.spawn(function() _origPcall(function() rem:InvokeServer(_origUnpack(mut)) end) end)
-                    end
-                end)
-                if ok then results.successes = results.successes + 1
-                else _origTableInsert(results.errors, tostring(err)) end
-                task.wait(0.1) -- rate limit
-            end
-        end
-    end
-
-    -- Try with suggested args
-    for _, args in ipairs(exp.suggestedArgs or {}) do
-        local mutations = SmartFuzzer.mutateArgs(args)
-        for _, mut in ipairs(mutations) do
-            if results.attempts >= maxAttempts then break end
-            results.attempts = results.attempts + 1
-            local ok, err = _origPcall(function()
-                if rem:IsA("RemoteEvent") then rem:FireServer(_origUnpack(mut))
-                elseif rem:IsA("RemoteFunction") then
-                    task.spawn(function() _origPcall(function() rem:InvokeServer(_origUnpack(mut)) end) end)
-                end
-            end)
-            if ok then results.successes = results.successes + 1
-            else _origTableInsert(results.errors, tostring(err)) end
-            task.wait(0.1)
-        end
-    end
-
-    return results
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 5: TIMING ANALYZER
--- Анализ задержек между RemoteEvent вызовами
--- ═══════════════════════════════════════════════════════════════
-
-function TimingAnalyzer.analyze()
-    DeepData.TimingAnalysis = {}
-    -- Группируем вызовы по remote
-    local callGroups = {}
-    for _, call in ipairs(DeepData.SpiedCalls) do
-        local path = call.path
-        if not callGroups[path] then callGroups[path] = {} end
-        _origTableInsert(callGroups[path], call.time)
-    end
-    -- Анализируем интервалы
-    for path, times in pairs(callGroups) do
-        if #times >= 3 then
-            table.sort(times)
-            local intervals = {}
-            for i = 2, #times do
-                _origTableInsert(intervals, times[i] - times[i-1])
-            end
-            -- Вычисляем средний интервал
-            local sum = 0
-            for _, iv in ipairs(intervals) do sum = sum + iv end
-            local avgInterval = sum / #intervals
-            -- Вычисляем jitter (стандартное отклонение)
-            local variance = 0
-            for _, iv in ipairs(intervals) do variance = variance + (iv - avgInterval)^2 end
-            local jitter = math.sqrt(variance / #intervals)
-            -- Определяем паттерн
-            local pattern = "IRREGULAR"
-            if jitter < avgInterval * 0.1 then pattern = "PERIODIC"
-            elseif jitter < avgInterval * 0.3 then pattern = "SEMI_PERIODIC"
-            elseif avgInterval < 0.1 then pattern = "BURST"
-            elseif avgInterval > 10 then pattern = "RARE"
-            end
-            _origTableInsert(DeepData.TimingAnalysis, {
-                path = path,
-                callCount = #times,
-                avgInterval = avgInterval,
-                jitter = jitter,
-                minInterval = intervals[1],
-                maxInterval = intervals[#intervals],
-                pattern = pattern,
-            })
-        end
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 6: ENHANCED ANTI-CHEAT DATABASE
--- 50+ AC сигнатур с описанием слабых мест
--- ═══════════════════════════════════════════════════════════════
-
-ACDatabase.signatures = {
-    {name = "Hyperion/Byfron", patterns = {"hyperion", "byfron", "fron"}, weakness = "Kernel-level, but client-side hooks still work via executors", bypass = "Use supported executor with Hyperion bypass"},
-    {name = "Adonis", patterns = {"adonis", "adonis_", "antiexploit"}, weakness = "Client-side, can be hooked and yielded", bypass = "Hook the anti-cheat module and yield it infinitely"},
-    {name = "Kohl's Admin", patterns = {"kohl", "kohls", "kohladmin"}, weakness = "Relies on client-side checks", bypass = "Disable LocalScript handlers"},
-    {name = "HD Admin", patterns = {"hdadmin", "hd_admin", "hddonate"}, weakness = "Client GUI can be destroyed", bypass = "Destroy the admin GUI in PlayerGui"},
-    {name = "Basic Admin", patterns = {"basicadmin", "basic_admin"}, weakness = "Simple client checks", bypass = "Hook Kick function"},
-    {name = "Cerebrus", patterns = {"cerebrus", "cereberus"}, weakness = "Memory scanning detectable", bypass = "Spoof memory signatures"},
-    {name = "Vermilion", patterns = {"vermilion", "vermillion"}, weakness = "Speed/teleport detection on client", bypass = "Hook Humanoid properties"},
-    {name = "Eremito", patterns = {"eremito"}, weakness = "Client-side walkspeed check", bypass = "Override WalkSpeed via metatable"},
-    {name = "Stronghold", patterns = {"stronghold"}, weakness = "Relies on GC scanning", bypass = "Use newcclosure wrappers"},
-    {name = "Sentinel", patterns = {"sentinel"}, weakness = "Hook detection via metamethods", bypass = "Use custom metamethod hooks"},
-    {name = "GuardV3", patterns = {"guard", "guardv3"}, weakness = "Client-side validation", bypass = "Destroy guard scripts"},
-    {name = "Clockwork", patterns = {"clockwork"}, weakness = "Remote validation", bypass = "Spoof remote arguments"},
-    {name = "Warden", patterns = {"warden"}, weakness = "Speed/fly detection", bypass = "Use gradual movement changes"},
-    {name = "LegionAC", patterns = {"legion"}, weakness = "Instance scanning", bypass = "Hide instances via nil parent"},
-    {name = "Vanguard", patterns = {"vanguard"}, weakness = "Process scanning", bypass = "Use external injection"},
-    {name = "NexusAC", patterns = {"nexus", "nexusac"}, weakness = "Client-side hooks", bypass = "Disable via hookfunction"},
-    {name = "FalconAC", patterns = {"falcon"}, weakness = "Memory patterns", bypass = "Spoof memory layout"},
-    {name = "RavenAC", patterns = {"raven"}, weakness = "String scanning", bypass = "Encrypt strings at runtime"},
-    {name = "SpectreAC", patterns = {"spectre"}, weakness = "GC analysis", bypass = "Clean GC before scans"},
-    {name = "Watchdog", patterns = {"watchdog"}, weakness = "Heartbeat monitoring", bypass = "Spoof heartbeat responses"},
-    {name = "Bastion", patterns = {"bastion"}, weakness = "Remote hooking detection", bypass = "Use pcall wrappers"},
-    {name = "Citadel", patterns = {"citadel"}, weakness = "Script integrity checks", bypass = "Hook integrity functions"},
-    {name = "Shield", patterns = {"shield_", "shieldac"}, weakness = "Walkspeed/jump detection", bypass = "Use gradual property changes"},
-    {name = "ArmorAC", patterns = {"armor", "armorac"}, weakness = "Instance creation monitoring", bypass = "Use cloneref"},
-    {name = "IronWall", patterns = {"ironwall", "iron_wall"}, weakness = "Function hooking detection", bypass = "Use detour methods"},
-    {name = "Polaris", patterns = {"polaris"}, weakness = "Client-side ban system", bypass = "Hook player:Kick"},
-    {name = "EagleAC", patterns = {"eagle"}, weakness = "Fly detection", bypass = "Use subtle position changes"},
-    {name = "PhoenixAC", patterns = {"phoenix"}, weakness = "Auto-restart mechanism", bypass = "Destroy restart loop"},
-    {name = "TitanAC", patterns = {"titan"}, weakness = "Heavy client-side checks", bypass = "Yield AC threads"},
-    {name = "Obsidian", patterns = {"obsidian"}, weakness = "Script scanning", bypass = "Hide scripts in nil parent"},
-    {name = "NovaAC", patterns = {"nova", "novaac"}, weakness = "Speed hack detection", bypass = "Interpolate speed changes"},
-    {name = "StealthAC", patterns = {"stealth", "stealthac"}, weakness = "Hidden monitoring", bypass = "Detect via GC scan"},
-    {name = "ApexAC", patterns = {"apex", "apexac"}, weakness = "Multi-vector detection", bypass = "Bypass each vector separately"},
-    {name = "ZenithAC", patterns = {"zenith"}, weakness = "Remote rate limiting", bypass = "Respect rate limits"},
-    {name = "ShadowAC", patterns = {"shadow", "shadowac"}, weakness = "Memory comparison", bypass = "Spoof memory values"},
-    {name = "ThunderAC", patterns = {"thunder"}, weakness = "Instant kick on detection", bypass = "Hook Kick before AC loads"},
-    {name = "StormAC", patterns = {"storm", "stormac"}, weakness = "Network monitoring", bypass = "Use encrypted channels"},
-    {name = "BlazeAC", patterns = {"blaze", "blazeac"}, weakness = "Script hash checking", bypass = "Regenerate hashes"},
-    {name = "FrostAC", patterns = {"frost", "frostac"}, weakness = "Rate limiting", bypass = "Add delays between calls"},
-    {name = "VoltAC", patterns = {"volt", "voltac"}, weakness = "Property monitoring", bypass = "Use indirect property access"},
-    {name = "QuakeAC", patterns = {"quake"}, weakness = "Position validation", bypass = "Use valid position ranges"},
-    {name = "TornadoAC", patterns = {"tornado"}, weakness = "Multi-signal detection", bypass = "Disable all signal handlers"},
-    {name = "VortexAC", patterns = {"vortex"}, weakness = "Metamethod monitoring", bypass = "Use newcclosure"},
-    {name = "MagnetAC", patterns = {"magnet"}, weakness = "Instance attraction detection", bypass = "Disable proximity checks"},
-    {name = "PlasmaAC", patterns = {"plasma"}, weakness = "High-frequency scanning", bypass = "Reduce scan frequency"},
-    {name = "QuantumAC", patterns = {"quantum"}, weakness = "State verification", bypass = "Spoof state responses"},
-    {name = "NeutronAC", patterns = {"neutron"}, weakness = "Core function monitoring", bypass = "Replace core functions"},
-    {name = "ProtonAC", patterns = {"proton"}, weakness = "Event monitoring", bypass = "Disable event handlers"},
-    {name = "ElectronAC", patterns = {"electron"}, weakness = "Lightweight checks", bypass = "Simple hook bypass"},
-    {name = "PhotonAC", patterns = {"photon"}, weakness = "Speed-of-light checks", bypass = "Gradual changes"},
-}
-
-function ACDatabase.detect()
-    DeepData.ACDetails = {}
-    for _, s in ipairs(DeepData.AnticheatScripts) do
-        _origPcall(function()
-            local nm = safeLower(s.Name)
-            local src = ""
-            _origPcall(function() if s.Source then src = safeLower(s.Source:sub(1, 2000)) end end)
-            local combined = nm .. " " .. src
-            for _, sig in ipairs(ACDatabase.signatures) do
-                for _, pat in ipairs(sig.patterns) do
-                    if combined:find(pat) then
-                        _origTableInsert(DeepData.ACDetails, {
-                            name = sig.name,
-                            script = s:GetFullName(),
-                            weakness = sig.weakness,
-                            bypass = sig.bypass,
-                            confidence = src:find(pat) and "HIGH" or "MEDIUM",
-                        })
-                        DeepData.AnticheatType = sig.name
-                        return
-                    end
-                end
-            end
-        end)
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 7: PRIVILEGE ESCALATION CHAIN FINDER
--- Автоматически ищет цепочки low → high privilege
--- ═══════════════════════════════════════════════════════════════
-
-PrivEscFinder.levels = {
-    chat = 1, speed = 1, noclip = 1, heal = 1,
-    combat = 2, damage = 2, teleport = 2, spawn = 2,
-    money = 3, shop = 3, upgrade = 3, roll = 3, pet = 3,
-    god = 4, kick = 4, delete = 4, boss = 4,
-    admin = 5, execute = 5, backdoor = 5, privesc = 5, exfil = 5, critical = 5,
-}
-
-function PrivEscFinder.findChains()
-    DeepData.PrivEscChains = {}
-    -- Group exploits by privilege level
-    local byLevel = {}
-    for _, exp in ipairs(DeepData.ExploitList) do
-        local level = PrivEscFinder.levels[exp.category] or 2
-        if not byLevel[level] then byLevel[level] = {} end
-        _origTableInsert(byLevel[level], exp)
-    end
-    -- Find chains: low → medium → high
-    for lowLevel = 1, 4 do
-        for highLevel = lowLevel + 1, 5 do
-            if byLevel[lowLevel] and byLevel[highLevel] then
-                for _, lowExp in ipairs(byLevel[lowLevel]) do
-                    for _, highExp in ipairs(byLevel[highLevel]) do
-                        -- Check if they share a parent or are related
-                        local lowParent = lowExp.remote and lowExp.remote.Parent
-                        local highParent = highExp.remote and highExp.remote.Parent
-                        local related = false
-                        if lowParent == highParent then related = true end
-                        if lowExp.path:match("^(.+)%..+$") == highExp.path:match("^(.+)%..+$") then related = true end
-                        -- Check if keywords overlap
-                        if matchAny(lowExp.name:lower(), {highExp.category}) or
-                           matchAny(highExp.name:lower(), {lowExp.category}) then related = true end
-                        if related then
-                            _origTableInsert(DeepData.PrivEscChains, {
-                                low = { name = lowExp.name, path = lowExp.path, risk = lowExp.risk, category = lowExp.category },
-                                high = { name = highExp.name, path = highExp.path, risk = highExp.risk, category = highExp.category },
-                                levelJump = highLevel - lowLevel,
-                                description = lowExp.category .. " → " .. highExp.category .. " (" .. lowExp.name .. " → " .. highExp.name .. ")",
-                            })
-                        end
-                    end
-                end
-            end
-        end
-    end
-    -- Sort by level jump (biggest jumps first)
-    table.sort(DeepData.PrivEscChains, function(a, b) return a.levelJump > b.levelJump end)
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 8: ENHANCED BACKDOOR DETECTOR v2
--- 50+ backdoor сигнатур с анализом web-запросов
--- ═══════════════════════════════════════════════════════════════
-
-BackdoorDetectorV2.signatures = {
-    -- Loadstring-based backdoors
-    {pattern = "loadstring%s*%(.*game.*HttpGet", severity = "CRITICAL", name = "Remote Loadstring"},
-    {pattern = "loadstring%s*%(.*require", severity = "CRITICAL", name = "Require-based Loader"},
-    {pattern = "loadstring%s*%(.*readfile", severity = "CRITICAL", name = "File-based Loader"},
-    -- HTTP backdoors
-    {pattern = "syn%.request.*POST.*discord", severity = "CRITICAL", name = "Discord Data Exfil"},
-    {pattern = "http_request.*webhook", severity = "CRITICAL", name = "Webhook Exfil"},
-    {pattern = "HttpGet.*%.lua", severity = "HIGH", name = "External Script Loader"},
-    {pattern = "HttpPost.*token", severity = "CRITICAL", name = "Token Stealer"},
-    -- Admin backdoors
-    {pattern = "admin.*execute.*string", severity = "CRITICAL", name = "Admin Execute Backdoor"},
-    {pattern = "remote.*admin.*command", severity = "CRITICAL", name = "Remote Admin Command"},
-    {pattern = "backdoor.*access", severity = "CRITICAL", name = "Explicit Backdoor"},
-    -- Hidden execution
-    {pattern = "setfenv.*0", severity = "HIGH", name = "Environment Manipulation"},
-    {pattern = "getfenv.*0", severity = "MEDIUM", name = "Environment Access"},
-    {pattern = "debug%.setfenv", severity = "HIGH", name = "Debug Environment Override"},
-    -- Data theft
-    {pattern = "LocalPlayer%.Name.*request", severity = "HIGH", name = "Player Data Leak"},
-    {pattern = "UserId.*http", severity = "HIGH", name = "UserID Exfil"},
-    {pattern = "AccountAge.*send", severity = "MEDIUM", name = "Account Info Leak"},
-    -- Persistence
-    {pattern = "Teleport.*rejoin", severity = "HIGH", name = "Forced Rejoin"},
-    {pattern = "TeleportService.*Teleport.*loop", severity = "HIGH", name = "Rejoin Loop"},
-    -- Hidden GUI
-    {pattern = "ScreenGui.*Enabled%s*=%s*false", severity = "MEDIUM", name = "Hidden ScreenGui"},
-    {pattern = "CoreGui.*insert", severity = "HIGH", name = "CoreGui Injection"},
-    -- Hooking
-    {pattern = "hookmetamethod.*__namecall", severity = "HIGH", name = "Namecall Hook"},
-    {pattern = "hookfunction.*FireServer", severity = "CRITICAL", name = "FireServer Hook"},
-    {pattern = "hookfunction.*Kick", severity = "HIGH", name = "Anti-Kick Hook"},
-    -- Crypto mining
-    {pattern = "hashrate|mining|bitcoin|ethereum|xmr", severity = "CRITICAL", name = "Crypto Miner"},
-    {pattern = "while%s+true.*hash", severity = "CRITICAL", name = "Mining Loop"},
-    -- Keyloggers
-    {pattern = "UserInputService.*InputBegan.*send", severity = "CRITICAL", name = "Keylogger"},
-    {pattern = "KeyCode.*request", severity = "CRITICAL", name = "Key Capture"},
-    -- Remote spy detection evasion
-    {pattern = "newcclosure.*FireServer", severity = "HIGH", name = "Stealth FireServer"},
-    {pattern = "detour_function", severity = "HIGH", name = "Function Detour"},
-    -- Server manipulation
-    {pattern = "ReplicatedFirst.*Destroy", severity = "CRITICAL", name = "ReplicatedFirst Destruction"},
-    {pattern = "ServerStorage.*access", severity = "HIGH", name = "ServerStorage Access"},
-    -- Marketplace abuse
-    {pattern = "PromptPurchase.*loop", severity = "CRITICAL", name = "Purchase Prompt Abuse"},
-    {pattern = "MarketplaceService.*Prompt.*hidden", severity = "CRITICAL", name = "Hidden Purchase"},
-    -- DataStore abuse
-    {pattern = "DataStoreService.*SetAsync.*other", severity = "CRITICAL", name = "Cross-Player DataStore"},
-    {pattern = "DataStoreService.*GetAsync.*all", severity = "HIGH", name = "Mass DataStore Read"},
-    -- Chat abuse
-    {pattern = "TextChatService.*Send.*spam", severity = "MEDIUM", name = "Chat Spammer"},
-    {pattern = "Chat.*ChatRemote.*flood", severity = "MEDIUM", name = "Chat Flood"},
-    -- Instance manipulation
-    {pattern = "Instance%.new.*RemoteEvent.*nil", severity = "HIGH", name = "Hidden Remote Creation"},
-    {pattern = "%.Parent%s*=%s*nil.*Remote", severity = "HIGH", name = "Remote Hiding"},
-}
-
-function BackdoorDetectorV2.scan()
-    DeepData.BackdoorFindings = {}
-    for path, src in pairs(DeepData.AllScriptSources) do
-        _origPcall(function()
-            local hits = {}
-            for _, sig in ipairs(BackdoorDetectorV2.signatures) do
-                if src:find(sig.pattern) then
-                    _origTableInsert(hits, { name = sig.name, severity = sig.severity, pattern = sig.pattern })
-                end
-            end
-            if #hits > 0 then
-                _origTableInsert(DeepData.BackdoorFindings, {
-                    path = path,
-                    hits = hits,
-                    maxSeverity = "LOW",
-                })
-                -- Determine max severity
-                local sevOrder = { CRITICAL = 4, HIGH = 3, MEDIUM = 2, LOW = 1 }
-                local maxSev = 0
-                for _, h in ipairs(hits) do
-                    if (sevOrder[h.severity] or 0) > maxSev then
-                        maxSev = sevOrder[h.severity] or 0
-                        DeepData.BackdoorFindings[#DeepData.BackdoorFindings].maxSeverity = h.severity
-                    end
-                end
-                TelemetryEngine.logTelemetry("BACKDOOR", path,
-                    #hits .. " backdoor patterns found (max: " .. DeepData.BackdoorFindings[#DeepData.BackdoorFindings].maxSeverity .. ")", "CRITICAL")
-            end
-        end)
-    end
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ULTIMATE MODULE 9: DIFF-BASED CHANGE DETECTOR
--- Сравнивает результаты между сканами
--- ═══════════════════════════════════════════════════════════════
-
-function DiffEngine.takeSnapshot()
-    local snapshot = {
-        timestamp = tick(),
-        exploitCount = #DeepData.ExploitList,
-        exploitPaths = {},
-        acType = DeepData.AnticheatType,
-        playerCount = #plrs:GetPlayers(),
-        remoteCount = 0,
-    }
-    for _, exp in ipairs(DeepData.ExploitList) do
-        snapshot.exploitPaths[exp.path] = { risk = exp.risk, score = exp.score, category = exp.category }
-    end
-    -- Count all remotes
-    for _, cat in ipairs({"MoneyRemotes","AdminRemotes","GodRemotes","ExecuteRemotes","CombatRemotes",
-        "DamageRemotes","ShopRemotes","UnknownRemotes","HighValueRemotes"}) do
-        snapshot.remoteCount = snapshot.remoteCount + #(DeepData[cat] or {})
-    end
-    return snapshot
-end
-
-function DiffEngine.compare(oldSnap, newSnap)
-    if not oldSnap or not newSnap then return nil end
-    local diff = {
-        newExploits = {},
-        removedExploits = {},
-        changedExploits = {},
-        newAC = nil,
-        playerDelta = newSnap.playerCount - oldSnap.playerCount,
-        remoteDelta = newSnap.remoteCount - oldSnap.remoteCount,
-    }
-    -- Find new exploits
-    for path, data in pairs(newSnap.exploitPaths) do
-        if not oldSnap.exploitPaths[path] then
-            _origTableInsert(diff.newExploits, { path = path, risk = data.risk, score = data.score })
-        elseif oldSnap.exploitPaths[path].score ~= data.score then
-            _origTableInsert(diff.changedExploits, {
-                path = path,
-                oldScore = oldSnap.exploitPaths[path].score,
-                newScore = data.score,
-            })
-        end
-    end
-    -- Find removed exploits
-    for path, _ in pairs(oldSnap.exploitPaths) do
-        if not newSnap.exploitPaths[path] then
-            _origTableInsert(diff.removedExploits, { path = path })
-        end
-    end
-    -- AC change
-    if oldSnap.acType ~= newSnap.acType then
-        diff.newAC = { old = oldSnap.acType, new = newSnap.acType }
-    end
-    return diff
-end
-
--- ═══════════════════════════════════════════════════════════════
--- ИНТЕГРАЦИЯ ВСЕХ ULTIMATE МОДУЛЕЙ
--- ═══════════════════════════════════════════════════════════════
-
--- Сохраняем снимок для diff
-local lastSnapshot = nil
-
--- Патчим runFullAnalysis для включения ultimate модулей
-local _ultimateRunFull = runFullAnalysis
-function runFullAnalysis(force)
-    _ultimateRunFull(force)
-    -- Ultimate modules
-    _origPcall(ExploitChainDetector.buildDependencyGraph)
-    _origPcall(RiskScorer.scoreAll)
-    _origPcall(AnomalyDetector.analyzeRemoteFrequency)
-    _origPcall(AnomalyDetector.analyzePlayerBehavior)
-    _origPcall(AnomalyDetector.analyzeMemoryTrends)
-    _origPcall(TimingAnalyzer.analyze)
-    _origPcall(ACDatabase.detect)
-    _origPcall(PrivEscFinder.findChains)
-    _origPcall(BackdoorDetectorV2.scan)
-    -- Diff detection
-    local newSnap = DiffEngine.takeSnapshot()
-    if lastSnapshot then
-        DeepData.LastDiff = DiffEngine.compare(lastSnapshot, newSnap)
-        if DeepData.LastDiff then
-            local nd = #DeepData.LastDiff.newExploits
-            if nd > 0 then
-                TelemetryEngine.logTelemetry("DIFF", "New Exploits Detected",
-                    nd .. " new exploits found since last scan!", "CRITICAL")
-                showToast(mf, "🚨 " .. nd .. " NEW EXPLOITS DETECTED!", Color3.fromRGB(200, 40, 40), 5)
-            end
-        end
-    end
-    lastSnapshot = newSnap
-end
-
--- Патчим отчёт для включения ultimate данных
-local _ultimateReport = fullReportToString
-function fullReportToString()
-    local report = _ultimateReport()
-    local extra = {}
-    local function w(s) _origTableInsert(extra, s) end
-    local function sec(title)
-        w("")
-        w("╔══════════════════════════════════════════════════════════════════════╗")
-        w("║ " .. title)
-        w("╚══════════════════════════════════════════════════════════════════════╝")
-    end
-
-    -- Exploit Chains
-    if DeepData.ExploitChains and #DeepData.ExploitChains > 0 then
-        sec("⛓️ EXPLOIT CHAINS (" .. #DeepData.ExploitChains .. ")")
-        for _, chain in ipairs(DeepData.ExploitChains) do
-            w("  " .. chain.description .. " | " .. chain.start .. " → " .. chain.finish)
-        end
-    end
-
-    -- CVSS Risk Scores
-    if DeepData.RiskScores then
-        sec("📊 CVSS-LIKE RISK SCORES (top 20)")
-        local sorted = {}
-        for path, score in pairs(DeepData.RiskScores) do
-            _origTableInsert(sorted, { path = path, score = score })
-        end
-        table.sort(sorted, function(a, b) return a.score.total > b.score.total end)
-        for i = 1, _origMathMin(20, #sorted) do
-            local s = sorted[i].score
-            w(_origStringFormat("  [%s|%d] %s (A:%d I:%d E:%d X:%d)",
-                s.grade, s.total, sorted[i].path:sub(1, 40),
-                s.breakdown.accessibility, s.breakdown.impact,
-                s.breakdown.exploitability, s.breakdown.exposure))
-        end
-    end
-
-    -- Anomalies
-    if DeepData.Anomalies then
-        sec("🚨 ANOMALIES DETECTED")
-        for _, a in ipairs(DeepData.Anomalies.highFrequency or {}) do
-            w("  [HIGH_FREQ] " .. a.path .. " (z=" .. _origStringFormat("%.1f", a.zScore) .. ", calls=" .. a.count .. ")")
-        end
-        for _, a in ipairs(DeepData.Anomalies.zeroFrequency or {}) do
-            w("  [DORMANT] " .. a.path)
-        end
-    end
-
-    -- Player Anomalies
-    if DeepData.PlayerAnomalies and next(DeepData.PlayerAnomalies) then
-        sec("👤 PLAYER ANOMALIES")
-        for name, anomalies in pairs(DeepData.PlayerAnomalies) do
-            w("  " .. name .. ":")
-            for _, a in ipairs(anomalies) do
-                w("    [" .. a.severity .. "] " .. a.type .. " = " .. tostring(a.value) .. " (expected: " .. a.expected .. ")")
-            end
-        end
-    end
-
-    -- AC Details
-    if DeepData.ACDetails and #DeepData.ACDetails > 0 then
-        sec("🛡️ ANTI-CHEAT DETAILED ANALYSIS")
-        for _, ac in ipairs(DeepData.ACDetails) do
-            w("  🔍 " .. ac.name .. " (confidence: " .. ac.confidence .. ")")
-            w("    Script: " .. ac.script)
-            w("    Weakness: " .. ac.weakness)
-            w("    Bypass: " .. ac.bypass)
-        end
-    end
-
-    -- Privilege Escalation Chains
-    if DeepData.PrivEscChains and #DeepData.PrivEscChains > 0 then
-        sec("🔓 PRIVILEGE ESCALATION CHAINS (" .. #DeepData.PrivEscChains .. ")")
-        for _, chain in ipairs(DeepData.PrivEscChains) do
-            w("  " .. chain.description .. " (jump: +" .. chain.levelJump .. " levels)")
-        end
-    end
-
-    -- Backdoor Findings v2
-    if DeepData.BackdoorFindings and #DeepData.BackdoorFindings > 0 then
-        sec("🚪 BACKDOOR DETECTION v2 (" .. #DeepData.BackdoorFindings .. " scripts)")
-        for _, bd in ipairs(DeepData.BackdoorFindings) do
-            w("  [" .. bd.maxSeverity .. "] " .. bd.path)
-            for _, h in ipairs(bd.hits) do
-                w("    → " .. h.name .. " (" .. h.severity .. ")")
-            end
-        end
-    end
-
-    -- Timing Analysis
-    if DeepData.TimingAnalysis and #DeepData.TimingAnalysis > 0 then
-        sec("⏱️ TIMING ANALYSIS")
-        for _, t in ipairs(DeepData.TimingAnalysis) do
-            w(_origStringFormat("  %s | %s | calls=%d avg=%.3fs jitter=%.3fs",
-                t.pattern, t.path:sub(1, 35), t.callCount, t.avgInterval, t.jitter))
-        end
-    end
-
-    -- Memory Trend
-    if DeepData.MemoryTrend then
-        sec("🧠 MEMORY TREND")
-        w("  Trend: " .. DeepData.MemoryTrend.trend)
-        if DeepData.MemoryTrend.change then
-            w("  Change: " .. _origStringFormat("%.0f", DeepData.MemoryTrend.change) .. " KB")
-        end
-    end
-
-    -- Diff
-    if DeepData.LastDiff then
-        sec("🔄 CHANGES SINCE LAST SCAN")
-        w("  New exploits: " .. #DeepData.LastDiff.newExploits)
-        w("  Removed: " .. #DeepData.LastDiff.removedExploits)
-        w("  Changed: " .. #DeepData.LastDiff.changedExploits)
-        w("  Player delta: " .. DeepData.LastDiff.playerDelta)
-        w("  Remote delta: " .. DeepData.LastDiff.remoteDelta)
-        for _, ne in ipairs(DeepData.LastDiff.newExploits) do
-            w("  🆕 " .. ne.path .. " [" .. ne.risk .. "|" .. ne.score .. "]")
-        end
-        if DeepData.LastDiff.newAC then
-            w("  ⚠️ AC CHANGED: " .. DeepData.LastDiff.newAC.old .. " → " .. DeepData.LastDiff.newAC.new)
-        end
-    end
-
-    -- Dependency Graph Summary
-    if DeepData.DependencyGraph then
-        local g = DeepData.DependencyGraph
-        local nodeCount = 0; for _ in pairs(g.nodes) do nodeCount = nodeCount + 1 end
-        sec("🕸️ DEPENDENCY GRAPH")
-        w("  Nodes: " .. nodeCount)
-        w("  Edges: " .. #g.edges)
-        w("  Cycles: " .. #g.cycles)
-        if #g.cycles > 0 then
-            w("  ⚠️ CYCLES DETECTED:")
-            for _, cycle in ipairs(g.cycles) do
-                w("    " .. _origTableConcat(cycle, " → "))
-            end
-        end
-    end
-
-    return report .. "\n\n" .. _origTableConcat(extra, "\n")
-end
-
-_origWarn("╔══════════════════════════════════════════════════════════════╗")
-_origWarn("║ 🔬 ULTIMATE MODULES v7.0 INTEGRATED!")
-_origWarn("║ ✅ Exploit Chain Detector")
-_origWarn("║ ✅ CVSS Risk Scorer (0-100)")
-_origWarn("║ ✅ Anomaly Detector (statistical)")
-_origWarn("║ ✅ Smart Fuzzer (mutation-based)")
-_origWarn("║ ✅ Timing Analyzer")
-_origWarn("║ ✅ AC Database (50+ signatures)")
-_origWarn("║ ✅ Privilege Escalation Finder")
-_origWarn("║ ✅ Backdoor Detector v2 (50+ patterns)")
-_origWarn("║ ✅ Diff Engine (change detection)")
-_origWarn("║ ✅ Dependency Graph Builder")
 _origWarn("╚══════════════════════════════════════════════════════════════╝")
